@@ -1,0 +1,6 @@
+# jCoin dependencies
+# Data layer (Phase 1)
+ccxt>=4.0.0          # unified crypto-exchange API (historical OHLCV fetch)
+duckdb>=1.0.0        # embedded SQL over parquet (queries, no server)
+polars>=1.0.0        # fast dataframe transforms
+pyarrow>=14.0.0      # parquet read/write engine

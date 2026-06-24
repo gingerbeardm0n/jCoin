@@ -1,0 +1,27 @@
+# API keys — never commit
+.env
+
+# Data store — large, regenerable via jcoin.data.fetch; never commit
+/data/
+
+# Paper/live runtime state + logs
+/paper_state/
+**/state.json
+*.log
+
+# Pipeline scratch (raw transcripts/articles can be re-fetched)
+/pipeline/raw/
+/pipeline/.playwright-mcp/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
