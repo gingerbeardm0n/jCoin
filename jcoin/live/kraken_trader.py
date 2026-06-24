@@ -38,13 +38,15 @@ class KrakenTrader(PaperTrader):
 
     def __init__(self, api_key: str, api_secret: str, demo: bool = True, **kwargs):
         broker = KrakenFuturesBroker(api_key, api_secret, demo=demo)
-        # Filter labels to only those actually listed on this exchange (demo has fewer markets)
-        if "labels" in kwargs and broker._markets:
+        # Filter labels to only those listed on this exchange (demo has fewer markets).
+        # Always filter — empty _markets means load failed, broker defaults to safe fallback.
+        if "labels" in kwargs:
             available = [l for l in kwargs["labels"] if broker.symbol_available(l)]
             skipped = set(kwargs["labels"]) - set(available)
             if skipped:
                 log.warning("symbols not on exchange, skipping: %s", skipped)
             kwargs["labels"] = available
+            log.info("trading labels after filter: %s", available)
         super().__init__(broker=broker, **kwargs)
         self._kraken = broker
 

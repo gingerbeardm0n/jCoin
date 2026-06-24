@@ -24,9 +24,9 @@ log = logging.getLogger(__name__)
 TAKER_FEE = 0.0005        # 0.05% per side (Kraken Futures taker tier 1)
 ROUND_TRIP_FEE = TAKER_FEE * 2  # charge both sides at entry for consistency
 
-# Demo base URL — all API paths are identical to live, just different host.
-_DEMO_BASE = "https://demo-futures.kraken.com/derivatives"
-_LIVE_BASE = "https://futures.kraken.com/derivatives"
+# Fallback market list for demo when load_markets() fails.
+# Kraken Futures demo supports only BTC and ETH perps.
+_DEMO_FALLBACK_MARKETS = {"BTC/USD:USD", "ETH/USD:USD"}
 
 
 def _ccxt_symbol(label: str) -> str:
@@ -37,33 +37,29 @@ class KrakenFuturesBroker(Broker):
     """Submits market orders to Kraken Futures. demo=True by default (safe)."""
 
     def __init__(self, api_key: str, api_secret: str, demo: bool = True):
-        base = _DEMO_BASE if demo else _LIVE_BASE
         self._ex = ccxt.krakenfutures({
             "apiKey": api_key,
             "secret": api_secret,
             "enableRateLimit": True,
-            "urls": {
-                "api": {
-                    "public":  base,
-                    "private": base,
-                }
-            },
         })
         self._demo = demo
+        if demo:
+            self._ex.set_sandbox_mode(True)
         mode = "DEMO" if demo else "LIVE"
-        log.info("KrakenFuturesBroker [%s] base=%s", mode, base)
+        log.info("KrakenFuturesBroker [%s]", mode)
         # Load available markets once; used to skip symbols not on this exchange/demo
         try:
             self._markets = set(self._ex.load_markets().keys())
             log.info("loaded %d markets", len(self._markets))
         except Exception as e:
-            log.warning("could not load markets: %s — will attempt all symbols", e)
-            self._markets = set()
+            fallback = _DEMO_FALLBACK_MARKETS if demo else set()
+            log.warning("could not load markets: %s — defaulting to %s", e, fallback or "none (will fail)")
+            self._markets = fallback
 
     def symbol_available(self, label: str) -> bool:
         sym = _ccxt_symbol(label)
         if not self._markets:
-            return True  # unknown — try anyway
+            return False  # unknown and no fallback — block all to avoid BadSymbol
         return sym in self._markets
 
     # -- Broker interface ------------------------------------------------------
