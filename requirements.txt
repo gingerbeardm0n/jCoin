@@ -4,6 +4,7 @@ ccxt>=4.0.0          # unified crypto-exchange API (historical OHLCV fetch)
 duckdb>=1.0.0        # embedded SQL over parquet (queries, no server)
 polars>=1.0.0        # fast dataframe transforms
 pyarrow>=14.0.0      # parquet read/write engine
+numpy>=1.26.0        # numerical ops (regime filter)
 python-dotenv>=1.0.0 # .env file loading
 fastapi>=0.100.0     # dashboard API
 uvicorn>=0.23.0      # dashboard ASGI server
