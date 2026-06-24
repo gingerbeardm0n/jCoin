@@ -52,6 +52,19 @@ class KrakenFuturesBroker(Broker):
         self._demo = demo
         mode = "DEMO" if demo else "LIVE"
         log.info("KrakenFuturesBroker [%s] base=%s", mode, base)
+        # Load available markets once; used to skip symbols not on this exchange/demo
+        try:
+            self._markets = set(self._ex.load_markets().keys())
+            log.info("loaded %d markets", len(self._markets))
+        except Exception as e:
+            log.warning("could not load markets: %s — will attempt all symbols", e)
+            self._markets = set()
+
+    def symbol_available(self, label: str) -> bool:
+        sym = _ccxt_symbol(label)
+        if not self._markets:
+            return True  # unknown — try anyway
+        return sym in self._markets
 
     # -- Broker interface ------------------------------------------------------
 
