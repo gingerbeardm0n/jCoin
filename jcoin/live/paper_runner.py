@@ -206,6 +206,23 @@ class PaperTrader:
         self.persist = True
         self._save()
 
+    def reset_equity(self, new_equity: float) -> None:
+        """Reset account to new_equity, drop open positions, keep closed trade history."""
+        acct = self.engine.account
+        self.log.warning(
+            "EQUITY RESET: %.2f -> %.2f | dropping %d open position(s)",
+            acct.equity, new_equity, acct.open_count,
+        )
+        acct.equity = new_equity
+        acct.positions.clear()
+        acct.equity_curve.clear()
+        self.engine._bars_held.clear()
+        self.engine.entries_enabled = True
+        self._last_prices.clear()
+        self.ks.reset(new_equity)
+        self._save()
+        self.log.warning("EQUITY RESET complete — live paper now tracks $%.2f", new_equity)
+
     # -- persistence ---------------------------------------------------------
     def _save(self) -> None:
         acct = self.engine.account

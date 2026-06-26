@@ -4,7 +4,12 @@ on:
   schedule:
     # Fires 5 min after each 4h bar close: 00:05, 04:05, 08:05, 12:05, 16:05, 20:05 UTC
     - cron: "5 0,4,8,12,16,20 * * *"
-  workflow_dispatch:   # manual trigger from GitHub Actions UI
+  workflow_dispatch:
+    inputs:
+      reset_equity:
+        description: "Reset paper equity to this amount (e.g. 10000). Leave blank to continue normally."
+        required: false
+        default: ""
 
 jobs:
   trade:
@@ -40,7 +45,12 @@ jobs:
         run: python -m jcoin.live.run_kraken --state-dir kraken_state
 
       - name: Run paper simulation
-        run: python -m jcoin.live.run_paper --mode live --state-dir paper_state
+        run: |
+          RESET_ARG=""
+          if [ -n "${{ github.event.inputs.reset_equity }}" ]; then
+            RESET_ARG="--reset-equity ${{ github.event.inputs.reset_equity }}"
+          fi
+          python -m jcoin.live.run_paper --mode live --state-dir paper_state $RESET_ARG
 
       - name: Save state
         uses: actions/cache/save@v4

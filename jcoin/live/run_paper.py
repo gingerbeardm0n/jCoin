@@ -30,6 +30,8 @@ def main(argv=None) -> int:
     p.add_argument("--risk-frac", type=float, default=0.01)
     p.add_argument("--max-dd-pct", type=float, default=0.40,
                    help="kill-switch hard halt; set ABOVE strategy's expected DD (~27%)")
+    p.add_argument("--reset-equity", type=float, default=None,
+                   help="reset account equity to this value and drop open positions, then run")
     args = p.parse_args(argv)
 
     trader = PaperTrader(
@@ -38,6 +40,9 @@ def main(argv=None) -> int:
         ks=KillSwitchConfig(max_dd_pct=args.max_dd_pct),
         start_equity=args.start_equity, state_dir=args.state_dir,
     )
+
+    if args.reset_equity is not None:
+        trader.reset_equity(args.reset_equity)
 
     if args.mode == "replay":
         start = dt.datetime.fromisoformat(args.start) if args.start else None
