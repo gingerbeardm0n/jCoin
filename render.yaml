@@ -1,0 +1,25 @@
+databases: []
+
+services:
+  - type: worker
+    name: jcoin-trader
+    runtime: python
+    plan: starter                 # cheapest paid tier — background workers have no free tier
+    buildCommand: pip install -r requirements.txt
+    # Paper mode by default. Do NOT switch to `kraken --live` until the parity audit
+    # (jcoin/research/parity_audit.py) is clean over >=8 fully-live paper trades and the
+    # go-live checklist in STRATEGY_SPEC.md is complete — see that doc before changing this.
+    startCommand: python -m jcoin.live.daemon --mode paper --run-now
+    envVars:
+      - key: JCOIN_STATE_DIR
+        value: /var/data           # must match the disk mount path below
+      - key: PYTHONUNBUFFERED
+        value: "1"                 # logs show up immediately in Render's log stream
+      - key: KRAKEN_FUTURES_KEY
+        sync: false                # set manually in Render dashboard — demo key for now
+      - key: KRAKEN_FUTURES_SECRET
+        sync: false                # set manually in Render dashboard — never commit this
+    disk:
+      name: jcoin-state
+      mountPath: /var/data
+      sizeGB: 1                    # state.json is tiny; 1GB is Render's minimum anyway

@@ -21,11 +21,19 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import logging
+import os
 import subprocess
 import sys
 import time
 
 log = logging.getLogger("jcoin.daemon")
+
+# On a hosted deploy (Render, etc.) the container filesystem is thrown away on every
+# restart/redeploy UNLESS state lives on a mounted persistent disk. Set JCOIN_STATE_DIR
+# to that disk's mount path (e.g. /var/data) and state writes there instead of the
+# relative default. Unset -> unchanged local-machine behavior (paper_state/, kraken_state/
+# under the working directory). See STRATEGY_SPEC.md deployment notes.
+_STATE_ROOT = os.environ.get("JCOIN_STATE_DIR")
 
 BAR_HOURS    = 4
 PREFETCH_MIN = 15  # wake before bar close to prefetch historical data
@@ -88,11 +96,13 @@ def tick(mode: str) -> None:
     log.info("=== BAR CLOSE %s mode=%s ===", now, mode)
 
     if mode in ("kraken", "both"):
-        rc = run_module("jcoin.live.run_kraken")
+        args = ["--state-dir", f"{_STATE_ROOT}/kraken_state"] if _STATE_ROOT else None
+        rc = run_module("jcoin.live.run_kraken", args)
         log.info("run_kraken exit=%d", rc)
 
     if mode in ("paper", "both"):
-        rc = run_module("jcoin.live.run_paper")
+        args = ["--state-dir", f"{_STATE_ROOT}/paper_state"] if _STATE_ROOT else None
+        rc = run_module("jcoin.live.run_paper", args)
         log.info("run_paper exit=%d", rc)
 
 
