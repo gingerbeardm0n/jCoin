@@ -22,8 +22,8 @@ app = FastAPI(title="jCoin Dashboard")
 # Set by __main__ before uvicorn starts
 STATE_FILE: Path = Path("paper_state/state.json")
 
-VALIDATED   = {"BTC", "ETH", "EGLD", "SAND", "IMX"}
-WATCH_LIST  = {"ADA", "XRP", "AVAX", "HBAR", "NEAR", "SUI"}
+VALIDATED   = {"BTC", "ETH", "EGLD", "SAND", "IMX", "XRP", "HBAR"}
+WATCH_LIST  = {"ADA", "AVAX", "NEAR", "SUI"}
 
 
 # ── API ──────────────────────────────────────────────────────────────────────
@@ -159,8 +159,8 @@ _HTML = r"""<!DOCTYPE html>
 </section>
 
 <script>
-const VALIDATED  = new Set(["BTC","ETH","EGLD","SAND","IMX"]);
-const MONITORING = new Set(["ADA","XRP","AVAX","HBAR"]);  // in paper runner, no sealed test yet
+const VALIDATED  = new Set(["BTC","ETH","EGLD","SAND","IMX","XRP","HBAR"]);  // sealed gate passed
+const MONITORING = new Set(["ADA","AVAX"]);                 // in paper runner, AVAX failed sealed gate
 const WATCH_LIST = new Set(["NEAR","SUI"]);                // not in runner
 const ALL_COINS  = ["BTC","ETH","EGLD","SAND","IMX","ADA","XRP","AVAX","HBAR","NEAR","SUI"];
 
