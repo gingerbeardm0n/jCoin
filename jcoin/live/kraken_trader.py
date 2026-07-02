@@ -27,7 +27,7 @@ import logging
 from jcoin.engine.kill_switch import KillSwitchConfig
 from jcoin.engine.risk import RiskConfig
 from jcoin.engine.strategy import StrategyConfig
-from jcoin.engine.types import Side
+from jcoin.engine.types import Position, Side
 from jcoin.live.kraken_broker import KrakenFuturesBroker
 from jcoin.live.paper_runner import PaperTrader
 
@@ -147,10 +147,61 @@ class KrakenTrader(PaperTrader):
                     else:
                         log.error("RECONCILE: %s ghost position with no price to close at — "
                                   "left in local state, needs manual review", sym)
-            if ghost:
-                self._save()
             if unknown:
-                log.warning("RECONCILE: Kraken has positions engine doesn't track: %s "
-                            "(manual order? — not managed by strategy)", unknown)
+                log.warning("RECONCILE: Kraken has positions engine doesn't track: %s — "
+                            "ADOPTING into local state (most likely cause: state.json was "
+                            "lost/wiped, e.g. an ephemeral-disk redeploy, while the position "
+                            "and/or its resting stop survived on Kraken).", unknown)
+                by_sym = {p["symbol"].split("/")[0]: p for p in kraken_pos}
+                for sym in unknown:
+                    self._adopt_position(sym, by_sym[sym])
+
+            if ghost or unknown:
+                self._save()
         except Exception as e:
             log.warning("position reconcile failed: %s", e)
+
+    def _adopt_position(self, symbol: str, kpos: dict) -> None:
+        """Reconstruct a Position from a real Kraken position we have no local record of.
+        Cost basis / original risk sizing are unrecoverable — this is a best-effort safety
+        net (stops the strategy from doubling up on a symbol it's blind to), not a precise
+        accounting recovery. Always ensures a protective stop is resting before returning."""
+        contracts = kpos.get("contracts") or 0
+        side = Side.LONG if (kpos.get("side") == "long" or contracts > 0) else Side.SHORT
+        size = abs(contracts)
+        entry_price = kpos.get("entryPrice") or kpos.get("markPrice")
+        if not entry_price or size <= 0:
+            log.error("ADOPT %s: missing entry price/size from Kraken, cannot adopt safely — "
+                      "MANUAL REVIEW NEEDED (position is real but untracked)", symbol)
+            return
+
+        existing_stop = self._kraken.fetch_resting_stop(symbol)
+        if existing_stop:
+            stop_price = existing_stop["price"]
+            stop_order_id = existing_stop["id"]
+            log.warning("ADOPT %s: recovered existing resting stop @ %.6f id=%s",
+                        symbol, stop_price, stop_order_id)
+        else:
+            # No resting stop found on the exchange either — this position is currently
+            # UNPROTECTED. Place a conservative fallback stop immediately (fixed 3% from
+            # entry; we have no ATR history to compute a proper one) rather than leave it
+            # naked until the next signal-driven trail update.
+            fallback_pct = 0.03
+            stop_price = entry_price * (1 - fallback_pct) if side == Side.LONG else entry_price * (1 + fallback_pct)
+            stop_order_id = self._kraken.place_stop(symbol, side, size, stop_price)
+            log.warning("ADOPT %s: NO existing stop found — placed fallback stop @ %.6f "
+                        "(%.0f%% from entry, conservative default) id=%s",
+                        symbol, stop_price, fallback_pct * 100, stop_order_id)
+
+        risk_dollars = self.engine.risk.risk_frac * self.engine.account.equity  # best-effort estimate
+        pos = Position(
+            symbol=symbol, side=side, entry_time=dt.datetime.now(dt.timezone.utc),
+            entry_price=entry_price, size=size, risk_dollars=risk_dollars, atr=0.0,
+            init_stop=stop_price, trail_stop=stop_price, extreme=entry_price, entry_cost=0.0,
+            stop_order_id=stop_order_id, stop_order_price=stop_price if stop_order_id else None,
+        )
+        self.engine.account.positions[symbol] = pos
+        self.engine._bars_held[symbol] = 0
+        log.warning("ADOPT %s: added to local state (approximate entry_time=now, "
+                    "risk_dollars estimated from current equity — P&L on this position "
+                    "will be approximate until it closes)", symbol)

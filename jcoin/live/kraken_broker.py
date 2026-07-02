@@ -211,6 +211,24 @@ class KrakenFuturesBroker(Broker):
         positions = self._ex.fetch_positions() or []
         return [p for p in positions if (p.get("contracts") or 0) != 0]
 
+    def fetch_resting_stop(self, symbol: str) -> dict | None:
+        """Look for an existing reduce-only stop order on this symbol — used when local
+        state was lost (e.g. an ephemeral-disk wipe) but a position + its resting stop
+        may still be sitting on Kraken from before the wipe. Returns {'id', 'price'} or
+        None if no such order exists (caller must then place a fresh protective stop)."""
+        try:
+            orders = self._ex.fetch_open_orders(_ccxt_symbol(symbol))
+        except Exception as e:
+            log.warning("fetch_resting_stop failed for %s: %s", symbol, e)
+            return None
+        for o in orders:
+            info = o.get("info", {})
+            is_reduce_only = o.get("reduceOnly") or info.get("reduceOnly")
+            trigger = o.get("triggerPrice") or o.get("stopPrice") or info.get("stopPrice")
+            if is_reduce_only and trigger:
+                return {"id": o.get("id"), "price": float(trigger)}
+        return None
+
     def cancel_all_orders(self, symbol: str | None = None) -> None:
         """Cancel any open orders (e.g. stale limit orders from a crash)."""
         try:
