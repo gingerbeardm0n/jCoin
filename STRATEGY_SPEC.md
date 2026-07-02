@@ -130,8 +130,29 @@ US-legal-gettable) as conviction filters; broaden instruments if liquidity allow
   expectancy > taker net expectancy after accounting for missed trades. **Not a priority —
   v1 is proven fee-insensitive (cost-stress survives 30 bp); this is a marginal optimization,
   not a fix.**
-- Cross-sectional momentum across a wider alt basket (rank + trade top movers).
+- ~~Cross-sectional momentum across a wider alt basket (rank + trade top movers).~~ **TESTED
+  2026-07-01, DEAD** — `jcoin/research/cross_sectional_momentum_backtest.py`. Looked good
+  in-sample (train Sharpe 0.66) but fully inverted out-of-sample (TEST Sharpe -1.15). Overfit
+  to the training window.
 - Volatility/consolidation pre-filter (breakout from a tight range = higher quality).
+- **Funding-rate-extreme reversal — a genuine lead, parked pending better data.** Tested
+  2026-07-01 (`jcoin/research/funding_extreme_reversal_backtest.py`): fade a coin when its
+  funding rate is a z-score extreme vs its own rolling history (crowd unusually one-sided ->
+  bet it unwinds). This is a downgraded, funding-only version of TradingRiot's documented
+  3-leg signal (OI spike + funding spike + liquidation flush) — the other 2 legs have no free
+  historical data (Kraken has zero historical OI, confirmed via direct API test 2026-06-30;
+  liquidation history needs paid Tardis, ~$450+/mo).
+  **Result: XRP and ADA show a real, consistent edge** — win% 63-65%, positive in both
+  halves of the available window (not a one-window fluke like RUNE/SUI were), ~6% CAGR at a
+  10%-of-equity per-trade sizing, low drawdown (<1.5%). SAND and AVAX are noise-level, not
+  worth trading. Honest caveats: (1) only ~10 months of data exist (Kraken's funding-history
+  ceiling) — no multi-regime test possible yet; (2) missing the OI/liquidation confirmation
+  legs that make the full signal credible; (3) best framed as a **confirmation filter on top
+  of breakout signals**, not a standalone strategy — matches the v2 plan above.
+  **Decision: do NOT wire into live/paper trading yet** — same rigor bar as everything else
+  (this is thinner evidence than the breakout coin gate). Revisit with real OI/liquidation
+  history (Coinglass ~$29-699/mo or Velo) once the account is live and profitable enough to
+  justify the recurring data cost — not before.
 
 ### Strategy 3 — Funding Carry *(ballast only, capital > $15k)*
 - Delta-neutral long-spot / short-perp (or cross-venue) to harvest funding. ~10–30% APR, low drawdown, near-uncorrelated with the momentum books.

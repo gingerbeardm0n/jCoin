@@ -27,7 +27,7 @@ _Researched 2026-06-19. Verify pricing before purchase — it drifts._
 
 ### 2. Funding rate
 - **Live, free:** Coinbase `GetProduct.funding_rate` (hourly funding); Kraken `tickers.fundingRate`.
-- **Historical, free:** Kraken Futures `GET /historical-funding-rates` is **public, no auth, full history** per `PF_*` market. This is the cleanest signal of the six.
+- **Historical, free:** Kraken Futures `GET /historical-funding-rates` is **public, no auth**, per `PF_*`/`PI_*` market. **CORRECTION (2026-06-30, empirically verified via direct REST call and ccxt): NOT full history — a rolling ~370-day window only (floor observed at 2025-06-26 when queried 2026-06-30, for both PF_XBTUSD and PI_XBTUSD, regardless of `since` param).** The original "full history" claim below was unverified and wrong. For anything needing more than ~1y of funding history, self-log going forward or use Coinalyze/Velo/Coinglass (paid, deeper retention).
 - **Coinbase historical funding:** no clean native history endpoint — self-log, or use Coinalyze/Velo. Coinbase funding mechanics differ (hourly), so don't assume Binance-style 8h schedules.
 
 ### 3. Liquidation data — THE PROBLEM
@@ -59,7 +59,7 @@ Usability for US retail (data consumption is legal regardless of trade-venue res
 
 ## Bottom line — GO / NO-GO
 
-**OI and funding: GO.** Both are available live and free directly from Coinbase and Kraken for the exact instruments traded; Kraken even gives free full funding history, and Coinalyze (free) plus Velo/Coinglass (cheap) cover aggregate and historical gaps. A realistic data budget for everything except liquidations is **$0–$300/mo**.
+**OI and funding: GO.** Both are available live and free directly from Coinbase and Kraken for the exact instruments traded; Kraken gives free funding history back ~1 year (not full history — see correction above), and Coinalyze (free) plus Velo/Coinglass (cheap) cover aggregate and deeper historical gaps. A realistic data budget for everything except liquidations is **$0–$300/mo**.
 
 **Liquidations: the gate fails as designed.** Coinbase publishes **no** liquidation data (live or historical) — full stop. Kraken Futures publishes only its own (thin) liquidations. The rich liquidation-cascade data the strategy implicitly wants lives on Binance/Bybit/OKX, which are visible through aggregators but **not tradeable** by a US no-VPN bot — so any liquidation edge backtested on aggregator data will not have a matching tradeable venue (parity break).
 
