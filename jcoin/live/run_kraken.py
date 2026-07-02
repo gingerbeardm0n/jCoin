@@ -33,6 +33,7 @@ dotenv.load_dotenv()  # loads .env from cwd or any parent directory
 from jcoin.engine.kill_switch import KillSwitchConfig
 from jcoin.engine.risk import RiskConfig
 from jcoin.engine.strategy import StrategyConfig
+from jcoin.live.error_breaker import ErrorBreaker
 from jcoin.live.kraken_trader import KrakenTrader
 
 
@@ -66,6 +67,13 @@ def main(argv=None) -> int:
         print("Demo keys: https://demo-futures.kraken.com -> Settings -> API")
         return 1
 
+    breaker = ErrorBreaker(args.state_dir)
+    if breaker.halted():
+        print("HALTED by error breaker — see ERROR_HALT.latch in state dir. "
+              "This matters doubly in live mode: repeated failures with real orders "
+              "outstanding means the bot may be blind to its own positions.")
+        return 2
+
     trader = KrakenTrader(
         api_key=api_key,
         api_secret=api_secret,
@@ -87,7 +95,12 @@ def main(argv=None) -> int:
     mode = "DEMO (demo-futures.kraken.com)" if demo else "LIVE (futures.kraken.com)"
     print(f"[{dt.datetime.utcnow().isoformat()} UTC] jCoin Kraken Trader — {mode}")
 
-    processed = trader.run_live_once()
+    try:
+        processed = trader.run_live_once()
+        breaker.record_success()
+    except Exception as e:
+        breaker.record_failure(repr(e))
+        raise
     a = trader.engine.account
     print(f"DONE | processed={processed} | equity=${a.equity:,.2f} | "
           f"open={a.open_count} | trades={len(a.closed)} | ts={trader.last_ts}")

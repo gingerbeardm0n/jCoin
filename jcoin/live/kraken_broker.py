@@ -68,8 +68,13 @@ class KrakenFuturesBroker(Broker):
     def enter(self, symbol: str, side: Side, size: float, bar: Bar) -> Fill:
         ccxt_side = "buy" if side == Side.LONG else "sell"
         sym = _ccxt_symbol(symbol)
-        log.info("ORDER  enter %s %s size=%.6f", symbol, ccxt_side.upper(), size)
-        order = self._ex.create_order(sym, "market", ccxt_side, size)
+        # Deterministic client order id from the signal's identity (symbol+side+bar).
+        # A network-retry of the same logical order carries the same id, so the
+        # exchange rejects the duplicate instead of double-filling (safety item #5).
+        cli_id = f"jcoin-e-{symbol}-{side.value}-{int(bar.ts.timestamp())}"
+        log.info("ORDER  enter %s %s size=%.6f cliOrdId=%s", symbol, ccxt_side.upper(), size, cli_id)
+        order = self._ex.create_order(sym, "market", ccxt_side, size,
+                                      params={"clientOrderId": cli_id})
         price = _fill_price(order, bar.close)
         cost = price * size * ROUND_TRIP_FEE
         log.info("FILL   enter %s @ %.6f cost=%.4f id=%s", symbol, price, cost, order.get("id", "?"))
@@ -86,10 +91,12 @@ class KrakenFuturesBroker(Broker):
     def exit(self, pos: Position, price: float, bar: Bar, reason: str) -> Fill:
         ccxt_side = "sell" if pos.side == Side.LONG else "buy"
         sym = _ccxt_symbol(pos.symbol)
-        log.info("ORDER  exit %s %s size=%.6f reason=%s", pos.symbol, ccxt_side.upper(), pos.size, reason)
+        cli_id = f"jcoin-x-{pos.symbol}-{pos.side.value}-{int(bar.ts.timestamp())}"
+        log.info("ORDER  exit %s %s size=%.6f reason=%s cliOrdId=%s",
+                 pos.symbol, ccxt_side.upper(), pos.size, reason, cli_id)
         order = self._ex.create_order(
             sym, "market", ccxt_side, pos.size,
-            params={"reduceOnly": True},
+            params={"reduceOnly": True, "clientOrderId": cli_id},
         )
         fill_price = _fill_price(order, price)
         log.info("FILL   exit %s @ %.6f id=%s", pos.symbol, fill_price, order.get("id", "?"))
