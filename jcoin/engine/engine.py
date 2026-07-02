@@ -56,6 +56,24 @@ class TradingEngine:
                 continue
             self._open(intent, size, risk_dollars, _bar(row))
 
+    def force_close(self, pos: Position, price: float, ts: dt.datetime, reason: str) -> None:
+        """Close a position using a price observed OUTSIDE the normal bar loop — e.g. a
+        resting exchange-side stop that fired between our checks. No broker.exit() call
+        (the exchange already executed the fill); we just reconcile our own accounting
+        to match reality. Used by live reconciliation, never by backtest/paper (parity
+        untouched — this path only exists because a real exchange can act between ticks)."""
+        gross = (price - pos.entry_price) * pos.side.sign * pos.size
+        net = gross - pos.entry_cost
+        self.account.equity += net
+        R = net / pos.risk_dollars if pos.risk_dollars else 0.0
+        self.account.closed.append(ClosedTrade(
+            symbol=pos.symbol, side=pos.side, entry_time=pos.entry_time, exit_time=ts,
+            entry_price=pos.entry_price, exit_price=price, size=pos.size,
+            pnl=net, R=R, exit_reason=reason,
+        ))
+        self.account.equity_curve.append((ts, self.account.equity))
+        del self.account.positions[pos.symbol]
+
     def flatten_all(self, ts: dt.datetime, rows: dict[str, dict], reason: str) -> None:
         """Close every open position at the current bar close (kill-switch hard halt)."""
         for symbol, pos in list(self.account.positions.items()):

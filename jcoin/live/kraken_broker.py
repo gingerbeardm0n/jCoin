@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
+import uuid
 
 import ccxt
 
@@ -101,6 +102,58 @@ class KrakenFuturesBroker(Broker):
             cost=0.0,   # round-trip already charged at entry
             kind="exit",
         )
+
+    # -- resting stop-loss (real exchange-side protection) --------------------
+
+    def place_stop(self, symbol: str, side: Side, size: float, stop_price: float) -> str | None:
+        """Place a reduce-only market-on-trigger stop, opposite side from the position
+        (closes it, never flips it — reduceOnly blocks that)."""
+        ccxt_side = "sell" if side == Side.LONG else "buy"
+        sym = _ccxt_symbol(symbol)
+        cli_id = f"jcoin-stop-{uuid.uuid4().hex[:16]}"
+        try:
+            order = self._ex.create_order(
+                sym, "market", ccxt_side, size, None,
+                params={"stopPrice": stop_price, "reduceOnly": True, "clientOrderId": cli_id},
+            )
+            oid = order.get("id")
+            log.info("STOP placed %s %s trigger=%.6f id=%s", symbol, ccxt_side.upper(), stop_price, oid)
+            return oid
+        except Exception as e:
+            log.error("STOP place FAILED %s trigger=%.6f: %s — position is UNPROTECTED until next retry",
+                      symbol, stop_price, e)
+            return None
+
+    def move_stop(self, order_id: str | None, symbol: str, side: Side, size: float,
+                   new_stop_price: float) -> str | None:
+        if order_id:
+            self.cancel_stop(order_id, symbol)
+        return self.place_stop(symbol, side, size, new_stop_price)
+
+    def cancel_stop(self, order_id: str | None, symbol: str) -> None:
+        if not order_id:
+            return
+        try:
+            self._ex.cancel_order(order_id, _ccxt_symbol(symbol))
+            log.info("STOP canceled %s id=%s", symbol, order_id)
+        except Exception as e:
+            log.warning("STOP cancel failed (likely already filled/gone) %s id=%s: %s",
+                        symbol, order_id, e)
+
+    def fetch_stop_fill(self, order_id: str, symbol: str) -> dict | None:
+        """Check whether a resting stop has filled. Returns {'price': avg, 'ts': ...} if
+        filled, else None. Used by reconciliation to close our local state honestly
+        instead of guessing when a stop fires between our checks."""
+        try:
+            order = self._ex.fetch_order(order_id, _ccxt_symbol(symbol))
+            status = order.get("status")
+            if status in ("closed", "filled"):
+                price = order.get("average") or order.get("price")
+                return {"price": float(price)} if price else None
+            return None
+        except Exception as e:
+            log.warning("fetch_stop_fill failed %s id=%s: %s", symbol, order_id, e)
+            return None
 
     # -- Kraken-specific helpers (used by KrakenTrader) -----------------------
 

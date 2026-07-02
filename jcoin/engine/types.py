@@ -57,6 +57,8 @@ class Position:
     trail_stop: float
     extreme: float              # best price seen since entry (high for long, low for short)
     entry_cost: float = 0.0     # round-trip cost charged at entry
+    stop_order_id: str | None = None      # resting exchange stop order id (live trading only)
+    stop_order_price: float | None = None  # trigger price the resting order was last placed/moved at
 
     def unrealized_R(self, price: float) -> float:
         risk_per_unit = abs(self.entry_price - self.init_stop)

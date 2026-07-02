@@ -257,13 +257,15 @@ class PaperTrader:
         return {"symbol": p.symbol, "side": p.side.value, "entry_time": p.entry_time.isoformat(),
                 "entry_price": p.entry_price, "size": p.size, "risk_dollars": p.risk_dollars,
                 "atr": p.atr, "init_stop": p.init_stop, "trail_stop": p.trail_stop,
-                "extreme": p.extreme, "entry_cost": p.entry_cost}
+                "extreme": p.extreme, "entry_cost": p.entry_cost,
+                "stop_order_id": p.stop_order_id, "stop_order_price": p.stop_order_price}
 
     @staticmethod
     def _pos_from(d: dict) -> Position:
         return Position(d["symbol"], Side(d["side"]), dt.datetime.fromisoformat(d["entry_time"]),
                         d["entry_price"], d["size"], d["risk_dollars"], d["atr"],
-                        d["init_stop"], d["trail_stop"], d["extreme"], d["entry_cost"])
+                        d["init_stop"], d["trail_stop"], d["extreme"], d["entry_cost"],
+                        d.get("stop_order_id"), d.get("stop_order_price"))
 
     @staticmethod
     def _trade_d(t: ClosedTrade) -> dict:

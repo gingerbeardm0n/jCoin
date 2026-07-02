@@ -22,6 +22,26 @@ class Broker(ABC):
     @abstractmethod
     def exit(self, pos: Position, price: float, bar: Bar, reason: str) -> Fill: ...
 
+    # -- resting stop-loss (optional; no-op by default) -----------------------------
+    # Simulated brokers (backtest/paper) enforce the stop entirely in software via
+    # engine.step() -> strategy.manage_position(), so they never need a real resting
+    # order. KrakenFuturesBroker overrides these to place/move/cancel a REAL exchange-
+    # side stop so a position is protected even if the bot process is down between bar
+    # checks. See LESSONS_FROM_JTRADER.md and STRATEGY_SPEC.md mandatory safety item #7.
+    def place_stop(self, symbol: str, side: Side, size: float, stop_price: float) -> str | None:
+        """Place a reduce-only stop order. Returns an order id, or None if unsupported."""
+        return None
+
+    def move_stop(self, order_id: str | None, symbol: str, side: Side, size: float,
+                   new_stop_price: float) -> str | None:
+        """Replace the resting stop with one at a new trigger price. Returns the new
+        order id, or None if unsupported."""
+        return None
+
+    def cancel_stop(self, order_id: str | None, symbol: str) -> None:
+        """Cancel a resting stop order. No-op if unsupported, id is None, or already gone."""
+        return None
+
 
 class BacktestBroker(Broker):
     """Simulated fills. Entry at the breakout bar close (taker). Exit at the supplied
