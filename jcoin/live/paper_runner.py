@@ -158,6 +158,14 @@ class PaperTrader:
         if self.last_ts is not None and common_ts <= self.last_ts:
             self.log.info("no new closed bar (latest=%s)", common_ts)
             return False
+        # Feed-staleness guard (safety item #2): a "latest closed bar" much older than
+        # one bar-interval means the exchange feed is serving stale data — do not manage
+        # stops or open positions against prices that may be hours old.
+        age_h = (dt.datetime.now(dt.timezone.utc) - common_ts).total_seconds() / 3600
+        if age_h > 9.0:  # 4h bar + 4h tolerance + 1h slack
+            self.log.error("FEED STALE: latest closed bar %s is %.1fh old — skipping this "
+                           "tick rather than trading on stale prices", common_ts, age_h)
+            return False
         rows = {}
         for label, f in feats.items():
             r = f.filter(pl.col("ts") == common_ts).select(_FEAT_COLS)
