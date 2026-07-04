@@ -52,13 +52,22 @@ class KrakenTrader(PaperTrader):
         self._kraken = broker
 
     def run_live_once(self) -> bool:
-        """Fetch bar, run strategy, place real orders, then sync equity from Kraken."""
+        """Fetch bar, run strategy, place real orders, then sync equity from Kraken.
+
+        Reconcile BEFORE managing resting stops (order matters): if a resting stop
+        fired on Kraken between ticks, the position is still sitting in local state as
+        a 'ghost' until reconciled. Doing stop-management first would see that stale
+        ghost as still-open, try to move its (already-filled) stop, and place a brand
+        new reduce-only order for a position that no longer exists on the exchange --
+        a harmless-but-orphaned phantom stop that never gets cleaned up. Reconciling
+        first means _manage_resting_stops only ever sees genuinely-open positions.
+        """
         before = dict(self.engine.account.positions)  # symbol -> Position, pre-tick snapshot
         result = super().run_live_once()
         if result:
-            self._manage_resting_stops(before)
             self._sync_equity()
             self._reconcile_positions()
+            self._manage_resting_stops(before)
         return result
 
     # -- resting stop-loss management -----------------------------------------

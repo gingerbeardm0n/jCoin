@@ -1,6 +1,10 @@
 # jCoin dependencies
 # Data layer (Phase 1)
-ccxt>=4.0.0          # unified crypto-exchange API (historical OHLCV fetch)
+ccxt==4.5.59         # PINNED: reduceOnly/stopPrice/clientOrderId param handling and
+                     # create_stop_market_order/fetch_funding_rate_history behavior were
+                     # verified directly against this exact version (2026-06-30/07-01).
+                     # >=4.0.0 previously let deploys silently drift to an untested ccxt
+                     # release; bump deliberately and re-verify, don't just relax this.
 duckdb>=1.0.0        # embedded SQL over parquet (queries, no server)
 polars>=1.0.0        # fast dataframe transforms
 pyarrow>=14.0.0      # parquet read/write engine

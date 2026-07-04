@@ -25,8 +25,28 @@ import os
 import subprocess
 import sys
 import time
+import urllib.request
 
 log = logging.getLogger("jcoin.daemon")
+
+# GAP FOUND 2026-07-03 auditing the Render blueprint: Render Cron Jobs cannot attach to
+# disks, and disks cannot be shared between services -- so the local Windows watchdog
+# (jcoin/live/watchdog.py, a separate scheduled task reading the SAME state.json) has
+# no equivalent on Render; a second service literally cannot see this worker's state.
+# Fix: an optional dead-man's-switch ping after every successful tick. Point PING_URL at
+# any uptime-monitor "ping" endpoint (healthchecks.io / cronitor / better-uptime all use
+# this exact pattern: they alert YOU if the ping doesn't arrive within the expected
+# window). Unset locally -> no-op, the Windows watchdog task covers that deployment.
+_PING_URL = os.environ.get("JCOIN_PING_URL")
+
+
+def _ping_alive() -> None:
+    if not _PING_URL:
+        return
+    try:
+        urllib.request.urlopen(_PING_URL, timeout=10)
+    except Exception as e:
+        log.warning("heartbeat ping failed (non-fatal): %s", e)
 
 # On a hosted deploy (Render, etc.) the container filesystem is thrown away on every
 # restart/redeploy UNLESS state lives on a mounted persistent disk. Set JCOIN_STATE_DIR
@@ -153,6 +173,8 @@ def main(argv=None) -> int:
         sleep_until(fire, "bar close")
         try:
             tick(args.mode)
+            _ping_alive()  # proves the daemon process itself is alive + looping, every
+                           # wake, independent of whether this wake had a new bar to trade
         except Exception:
             log.exception("tick failed — continuing to next bar")
 

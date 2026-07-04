@@ -24,11 +24,18 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import os
 import subprocess
 import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
+# On a hosted deploy (Render, etc.), state.json lives on the mounted persistent disk
+# (JCOIN_STATE_DIR), NOT under the repo checkout. This must match daemon.py's routing
+# or the watchdog silently watches a path that will never exist and always "passes"
+# with zero real monitoring -- found 2026-07-03 while auditing the Render blueprint.
+_STATE_ROOT = Path(os.environ["JCOIN_STATE_DIR"]) if os.environ.get("JCOIN_STATE_DIR") else REPO
+
 # Only the paper runner is scheduled today. The Kraken demo route was abandoned
 # (2026-06-30) and its state dir is intentionally stale — watching it would alert
 # forever. When live trading launches, add kraken_state/state.json back here (or

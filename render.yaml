@@ -19,6 +19,13 @@ services:
         sync: false                # set manually in Render dashboard — demo key for now
       - key: KRAKEN_FUTURES_SECRET
         sync: false                # set manually in Render dashboard — never commit this
+      - key: JCOIN_PING_URL
+        sync: false                # OPTIONAL but strongly recommended: a healthchecks.io
+                                    # (or cronitor/better-uptime) "ping" URL. Render Cron
+                                    # Jobs cannot attach to this worker's disk, so the local
+                                    # jCoin-Watchdog scheduled task has NO Render equivalent
+                                    # without this — leaving it unset means a dead/hung
+                                    # worker here goes unnoticed until you check manually.
     disk:
       name: jcoin-state
       mountPath: /var/data
