@@ -17,6 +17,7 @@ from jcoin.engine.risk import RiskConfig
 from jcoin.engine.strategy import StrategyConfig
 from jcoin.live.error_breaker import ErrorBreaker
 from jcoin.live.paper_runner import PaperTrader
+from jcoin.live import remote_flatten
 
 
 def main(argv=None) -> int:
@@ -40,6 +41,10 @@ def main(argv=None) -> int:
         print("HALTED by error breaker — see ERROR_HALT.latch in state dir")
         return 2
 
+    if remote_flatten.is_latched(args.state_dir):
+        print("HALTED by remote flatten latch — see FLATTEN_HALT.latch in state dir.")
+        return 3
+
     trader = PaperTrader(
         labels=args.labels, tf=args.tf,
         strat=StrategyConfig(), risk=RiskConfig(args.risk_frac, 1, 2),
@@ -54,6 +59,8 @@ def main(argv=None) -> int:
         if args.mode == "replay":
             start = dt.datetime.fromisoformat(args.start) if args.start else None
             trader.run_replay(start=start)
+        elif remote_flatten.handle_flatten(trader, args.state_dir):
+            pass  # flattened + latched this tick, skipped normal signal processing
         else:
             trader.run_live_once()
         breaker.record_success()

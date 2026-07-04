@@ -35,6 +35,7 @@ from jcoin.engine.risk import RiskConfig
 from jcoin.engine.strategy import StrategyConfig
 from jcoin.live.error_breaker import ErrorBreaker
 from jcoin.live.kraken_trader import KrakenTrader
+from jcoin.live import remote_flatten
 
 
 def main(argv=None) -> int:
@@ -74,6 +75,10 @@ def main(argv=None) -> int:
               "outstanding means the bot may be blind to its own positions.")
         return 2
 
+    if remote_flatten.is_latched(args.state_dir):
+        print("HALTED by remote flatten latch — see FLATTEN_HALT.latch in state dir.")
+        return 3
+
     trader = KrakenTrader(
         api_key=api_key,
         api_secret=api_secret,
@@ -96,7 +101,10 @@ def main(argv=None) -> int:
     print(f"[{dt.datetime.utcnow().isoformat()} UTC] jCoin Kraken Trader — {mode}")
 
     try:
-        processed = trader.run_live_once()
+        if remote_flatten.handle_flatten(trader, args.state_dir):
+            processed = True  # ran, just skipped normal signal processing this tick
+        else:
+            processed = trader.run_live_once()
         breaker.record_success()
     except Exception as e:
         breaker.record_failure(repr(e))
