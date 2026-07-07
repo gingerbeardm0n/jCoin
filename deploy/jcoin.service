@@ -1,0 +1,19 @@
+[Unit]
+Description=jCoin autonomous trading daemon
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=jcoin
+WorkingDirectory=/opt/jcoin
+# .env holds KRAKEN_FUTURES_KEY/SECRET etc -- never committed, created once by hand on the VM.
+EnvironmentFile=/opt/jcoin/.env
+ExecStart=/opt/jcoin/.venv/bin/python -m jcoin.live.daemon --mode paper
+Restart=always
+RestartSec=30
+StandardOutput=append:/opt/jcoin/logs/daemon.log
+StandardError=append:/opt/jcoin/logs/daemon.log
+
+[Install]
+WantedBy=multi-user.target
