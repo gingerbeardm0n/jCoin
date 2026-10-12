@@ -1,9 +1,14 @@
 # jCoin — Strategy & Risk Specification
 
-**Status:** Draft v0.1 — pre-build blueprint
-**Date:** 2026-06-19
+**Status:** Draft v0.1 — pre-build blueprint; risk, kill-switch, universe, and venue sections
+below were updated 2026-09-18 to match the running code (see inline notes).
+**Date:** 2026-06-19 (last updated 2026-09-18)
 **Owner:** Joel
-**Mandate:** A 24/7 automated crypto perpetual-futures trader. Constant monitoring, momentum scalping — many small profitable trades that compound. US-based, no VPN, capital band $5k–25k.
+**Mandate:** A 24/7 automated crypto perpetual-futures trader. Constant monitoring,
+**trend-following swing trades** (see §3 v1 — this is NOT scalping; the original scalping
+mandate was superseded 2026-06-20, see §0). US-based, no VPN. Capital band $5k–25k is the
+long-run target; actual paper testing to date has used $1k, and the live venue is not yet
+decided — see "Venue status (2026-09-18)" in §1.
 
 > Sibling project to **jTrader** (mid-cap momentum equities, 9:30–11:30am only). jCoin removes the time-of-day constraint by moving to a market that never closes.
 
@@ -56,16 +61,41 @@ US-legal, no-VPN venues only (Hyperliquid, dYdX, GMX, Binance, Bybit, OKX are al
 - [ ] Confirm Coinbase US perp post-only fee/rebate (international rate may differ).
 - [ ] Measure live bid/ask spread + book depth on both venues before sizing.
 
+### Venue status (2026-09-18)
+
+**Not decided — do not treat any venue below as final.** The table above is the original
+plan; it is stale. The code's live broker currently targets ccxt `krakenfutures`
+(futures.kraken.com) — offshore Kraken Futures — but Kraken's own terms exclude US
+residents from that product, so this cannot legally go live as configured.
+
+- **Kraken Derivatives US** (the actual US-legal Kraken perps product) has, as far as this
+  audit found, **no trading API** — it is Kraken Pro app only. Its ETH contract is 0.5 ETH
+  (~$2,000 notional) with fees of $0.30/contract round trip. Absence of an API was not
+  proven absent, only not found; needs a direct check.
+- **Coinbase US nano perpetual-style futures** is the current candidate: nano BTC (0.01 BTC)
+  and nano ETH (0.1 ETH) contracts, Advanced Trade API, CFTC-regulated. This has **not yet
+  been verified with a real API test** — it is a candidate, not a decision.
+
+No live trading may start until a venue is confirmed by an actual API call from Ohio, no VPN.
+
 ---
 
 ## 2. Instruments
 
-Ranked for this capital band:
+**Universe decision (2026-09-18): BTC + ETH only.** A clean out-of-sample (OOS, i.e. data
+never used to pick parameters or coins) replay on Kraken data (Jun 1–Sep 18 2026, $1k reset)
+scored BTC+ETH at profit factor (PF, i.e. gross profit ÷ gross loss) 3.28 and 4.9% max
+drawdown, versus a 9-coin universe at PF 1.35 and 12.7% max drawdown on the same window —
+the extra coins added trades and drawdown, not edge. Alt coins (SOL, XRP, or any other) may
+be re-tested only under the process in `VALIDATION_RULES.md` — never by looking at the
+sealed OOS window described there.
+
+Ranked for this capital band (see caveat above — items 3–4 are excluded pending re-test):
 
 1. **BTC-PERP** — mandatory core. Tightest spread (0.5–3 bp), deepest US-legal book, predictable funding.
 2. **ETH-PERP** — run alongside BTC. Higher ATR (3–5% vs 2–4%) → 30–50% more setups.
-3. **SOL-PERP** (Kraken only) — add after BTC/ETH proven. 5–8% ATR. New book is thin → trade at 25–50% size until depth confirmed.
-4. *Opportunistic:* XRP-PERP (event-driven only).
+3. ~~**SOL-PERP** (Kraken only) — add after BTC/ETH proven.~~ *Excluded pending re-test.*
+4. ~~*Opportunistic:* XRP-PERP (event-driven only).~~ *Excluded pending re-test.*
 - **Excluded:** DOGE, LINK, AVAX, ADA — spread + slippage exceed scalp targets at this capital.
 
 **Session handling — Adaptive 24/7 (decided):**
@@ -173,20 +203,50 @@ US-legal-gettable) as conviction filters; broaden instruments if liquidity allow
 
 **Sizing & leverage**
 - Venue leverage cap set to **5x max**; *effective* leverage from risk-first sizing will usually be **1–2x**.
-- At $10k: per-trade risk ~$50–75 (0.5–0.75%).
+- At $10k: per-trade risk $100 (1%) in bull phase, scaled to $75 (0.75%) in bear phase.
 - Position size = `(equity × per-trade-risk%) / stop-distance%`.
-- **Per-trade risk: 0.5–0.75% of equity.**
+- **Per-trade risk (code, current): 1% of equity (`risk.py` `risk_frac=0.01`), scaled by
+  0.75× (to 0.75% effective) when the macro cycle filter reads bear phase.**
+  *Original target — 0.5–0.75% flat — superseded: the running code uses a higher 1% base
+  and only cuts to 0.75% in bear phase, because bear-phase shorts still showed positive
+  edge (PF ~1.59) so a full risk cut wasn't judged necessary; see
+  `jcoin/live/paper_runner.py:75-89`.*
+  **Bear phase, as actually defined (`jcoin/strategy/cycle.py`):** close below the
+  365-day simple moving average (SMA), OR a "Pi Cycle Top" signal (111-day SMA crosses
+  above 2× the 350-day SMA) that stays in force until price drops back below the 365-day
+  SMA. Anything else is bull. Fewer than ~2,190 4h bars (~365 days) of warmup history reads
+  as "unknown," which the code treats as bull (entries allowed).
 - **Isolated margin**, with liquidation price **≥ 5× the stop distance** away (a flash wick must never reach liquidation).
 - Max total open notional ≤ 2× equity.
 
 **Loss limits**
-- **Daily: 3% of equity → auto-flatten + halt until next day.**
-- Weekly: 6–8% → halt + manual review.
+- **Daily: 3% of equity → soft halt (pause new entries) until next day.** Matches code
+  (`kill_switch.py` `daily_loss_pct=0.03`).
+- ~~Weekly: 6–8% → halt + manual review.~~ **Superseded — no weekly-cadence check exists in
+  code.** In its place, code has a **max-drawdown-from-peak hard halt** (flatten + disable,
+  manual re-enable): the live/paper runners' CLI default is **40%** (`run_paper.py`,
+  `run_kraken.py`, `--max-dd-pct`, default 0.40); the `KillSwitchConfig` module default if no
+  CLI flag is passed is **25%**. The original 6–8% weekly target was superseded because a
+  weekly check was never built — daily-loss plus a drawdown-from-peak check were judged
+  sufficient.
+- **Consecutive-loss cooldown exists in code but is disabled** (`consecutive_losses=0`):
+  it hurt trend-following returns in backtest (it paused right before breakouts, costing
+  ~12% of return over 5.5 years) — see `jcoin/engine/kill_switch.py:34-36`.
 - Every position carries a resting on-exchange stop.
 
 **Cost discipline**
 - Maker (post-only) wherever possible. Require net edge > 2× round-trip cost.
 - Avoid holding across funding stamps unless carry is favorable; flatten before thin windows.
+
+**Known cost-model gaps (2026-09-18):**
+- Funding is not modeled anywhere in the backtest or paper engine, even though this
+  strategy holds positions for multiple days and perps pay funding every 8 hours.
+- The backtest cost model is a flat 12 basis points (bp; 1 bp = 0.01%) round trip, applied
+  the same way to every trade regardless of coin or size.
+- The live paper broker instead uses a separate constant 10 bp fee — it is not reconciled
+  with the backtest's 12 bp.
+- There is no lot-size rounding or minimum-order-size check before an order size is sent to
+  the broker; a small-notional order could be rejected or silently truncated by the exchange.
 
 **Collateral & counterparty**
 - Collateral in **USDC** (not USDT — depeg risk).
@@ -206,6 +266,13 @@ US-legal-gettable) as conviction filters; broaden instruments if liquidity allow
 
 **Go-live ramp:**
 `Paper / testnet ≥ 30 days → live at minimum size (~$500–1k risk capital) ≥ 30 days → scale into the $5k–25k band.`
+No trade-count threshold gates any step of this ramp — only elapsed continuous-processing
+days do.
+
+**Paper clock status (2026-09-18):** the ≥30-day paper bar has NOT been met — 38% of 4h
+bars were never processed since the 2026-07-01 reset (host went to sleep; no catch-up
+loop existed). The clock restarts from zero on the date an always-on host and a catch-up
+loop ship.
 
 ---
 
