@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
+import time
 import uuid
 
 import ccxt
@@ -65,9 +66,39 @@ class KrakenFuturesBroker(Broker):
 
     # -- Broker interface ------------------------------------------------------
 
-    def enter(self, symbol: str, side: Side, size: float, bar: Bar) -> Fill:
+    def enter(self, symbol: str, side: Side, size: float, bar: Bar) -> Fill | None:
         ccxt_side = "buy" if side == Side.LONG else "sell"
         sym = _ccxt_symbol(symbol)
+
+        # Round to exchange precision and enforce the exchange's minimum order
+        # size/notional BEFORE placing anything (audit 2026-09-18, item #5). An
+        # unrounded or too-small size either gets rejected by the exchange or fills
+        # at a size we didn't expect -- either way we must not record a phantom
+        # position for an order that never really went through as intended.
+        try:
+            size = float(self._ex.amount_to_precision(sym, size))
+        except Exception as e:
+            log.warning("amount_to_precision failed for %s size=%.6f: %s — using raw size",
+                       symbol, size, e)
+
+        market = (self._ex.markets or {}).get(sym)
+        limits = (market or {}).get("limits") or {}
+        min_amount = (limits.get("amount") or {}).get("min")
+        min_cost = (limits.get("cost") or {}).get("min")
+
+        if size <= 0:
+            log.warning("ORDER SKIPPED %s: rounded size is zero/negative (%.8f) — not placed",
+                       symbol, size)
+            return None
+        if min_amount is not None and size < min_amount:
+            log.warning("ORDER SKIPPED %s: size %.8f < exchange minimum amount %.8f — not placed",
+                       symbol, size, min_amount)
+            return None
+        if min_cost is not None and size * bar.close < min_cost:
+            log.warning("ORDER SKIPPED %s: notional %.2f < exchange minimum cost %.2f — not placed",
+                       symbol, size * bar.close, min_cost)
+            return None
+
         # Deterministic client order id from the signal's identity (symbol+side+bar).
         # A network-retry of the same logical order carries the same id, so the
         # exchange rejects the duplicate instead of double-filling (safety item #5).
@@ -112,9 +143,16 @@ class KrakenFuturesBroker(Broker):
 
     # -- resting stop-loss (real exchange-side protection) --------------------
 
-    def place_stop(self, symbol: str, side: Side, size: float, stop_price: float) -> str | None:
+    def place_stop(self, symbol: str, side: Side, size: float, stop_price: float,
+                    _retry: bool = True) -> str | None:
         """Place a reduce-only market-on-trigger stop, opposite side from the position
-        (closes it, never flips it — reduceOnly blocks that)."""
+        (closes it, never flips it — reduceOnly blocks that).
+
+        On failure, retries once after a 2s pause (transient network/rate-limit blips
+        are common and a stop is too important to give up on after one try). If the
+        retry also fails, returns None -- the caller (kraken_trader.py) escalates that
+        to a CRITICAL halt rather than silently continuing with an unprotected position
+        (audit 2026-09-18, item #6)."""
         ccxt_side = "sell" if side == Side.LONG else "buy"
         sym = _ccxt_symbol(symbol)
         cli_id = f"jcoin-stop-{uuid.uuid4().hex[:16]}"
@@ -127,7 +165,12 @@ class KrakenFuturesBroker(Broker):
             log.info("STOP placed %s %s trigger=%.6f id=%s", symbol, ccxt_side.upper(), stop_price, oid)
             return oid
         except Exception as e:
-            log.error("STOP place FAILED %s trigger=%.6f: %s — position is UNPROTECTED until next retry",
+            if _retry:
+                log.warning("STOP place FAILED %s trigger=%.6f: %s — retrying once in 2s",
+                           symbol, stop_price, e)
+                time.sleep(2)
+                return self.place_stop(symbol, side, size, stop_price, _retry=False)
+            log.error("STOP place FAILED %s trigger=%.6f after retry: %s — position is UNPROTECTED",
                       symbol, stop_price, e)
             return None
 

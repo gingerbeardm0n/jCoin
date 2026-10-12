@@ -12,3 +12,4 @@ numpy>=1.26.0        # numerical ops (regime filter)
 python-dotenv>=1.0.0 # .env file loading
 fastapi>=0.100.0     # dashboard API
 uvicorn>=0.23.0      # dashboard ASGI server
+pytest>=7.0.0        # test suite (tests/)

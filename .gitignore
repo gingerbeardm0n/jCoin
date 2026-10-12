@@ -25,3 +25,6 @@ venv/
 Thumbs.db
 .idea/
 .vscode/
+
+# Watchdog alert files (runtime output)
+WATCHDOG_ALERT*.txt

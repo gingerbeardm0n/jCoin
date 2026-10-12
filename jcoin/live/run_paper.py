@@ -12,19 +12,23 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 
+from jcoin.data.config import DEFAULT_LIVE_LABELS
 from jcoin.engine.kill_switch import KillSwitchConfig
 from jcoin.engine.risk import RiskConfig
 from jcoin.engine.strategy import StrategyConfig
 from jcoin.live.error_breaker import ErrorBreaker
 from jcoin.live.paper_runner import PaperTrader
+from jcoin.live.ping import ping
 from jcoin.live import remote_flatten
 
 
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description="jCoin paper trader")
     p.add_argument("--mode", choices=["replay", "live"], default="live")
-    p.add_argument("--labels", nargs="+",
-                   default=["BTC", "ETH", "EGLD", "SAND", "IMX", "ADA", "XRP", "AVAX", "HBAR"])
+    # --symbols is an alias for --labels (audit 2026-09-18): both flags select the same
+    # symbol universe, kept under one dest so existing --labels callers are unaffected.
+    p.add_argument("--labels", "--symbols", dest="labels", nargs="+",
+                   default=list(DEFAULT_LIVE_LABELS))
     p.add_argument("--tf", default="4h")
     p.add_argument("--start", default=None, help="replay start date YYYY-MM-DD")
     p.add_argument("--state-dir", default="paper_state")
@@ -64,6 +68,15 @@ def main(argv=None) -> int:
         else:
             trader.run_live_once()
         breaker.record_success()
+        failures = getattr(trader, "fetch_failures", [])
+        if failures:
+            # Don't ping "alive" when market data is broken: the dead-man's switch
+            # should go quiet so a human hears about it. Non-zero exit shows up in
+            # Task Scheduler history. Not counted by the error breaker -- a network
+            # blip after sleep shouldn't latch a halt; the next run catches up.
+            print(f"\nFETCH FAILED for {failures} -- no heartbeat ping this run")
+            return 4
+        ping()  # optional dead-man's-switch ping (no-op unless JCOIN_PING_URL is set)
     except Exception as e:
         breaker.record_failure(repr(e))
         raise

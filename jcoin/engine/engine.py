@@ -28,8 +28,22 @@ class TradingEngine:
         self._bars_held: dict[str, int] = {}
         self.entries_enabled: bool = True   # kill-switch can pause new entries
 
-    def step(self, ts: dt.datetime, rows: dict[str, dict]) -> None:
-        """rows: symbol -> feature row (dict with ohlc + features) for this timestamp."""
+    def step(self, ts: dt.datetime, rows: dict[str, dict], allow_entries: bool = True,
+             entry_symbols: set[str] | None = None) -> None:
+        """rows: symbol -> feature row (dict with ohlc + features) for this timestamp.
+
+        allow_entries: per-call override (ANDed with self.entries_enabled) used by the
+        live catch-up loop (audit 2026-09-18, item #2) to run manage/exit logic on a
+        stale backlog bar while skipping brand-new entries on it. Always True for
+        backtest/replay -- parity untouched.
+
+        entry_symbols: optional restriction on which symbols may open a NEW position
+        this step. Positions are always managed/exited for every symbol in `rows`
+        regardless of this set. Used by the live runner (audit 2026-09-18, orphaned
+        open positions) to fetch+manage a symbol whose open position has fallen
+        outside the current trading universe without letting it open fresh entries.
+        None (default) means no restriction -- backtest/replay parity untouched.
+        """
         # --- Phase 1: manage open positions (exits) ---
         for symbol, pos in list(self.account.positions.items()):
             row = rows.get(symbol)
@@ -41,10 +55,12 @@ class TradingEngine:
                 self._close(pos, decision.price, _bar(row), decision.reason)
 
         # --- Phase 2: consider entries for flat symbols (unless paused) ---
-        if not self.entries_enabled:
+        if not self.entries_enabled or not allow_entries:
             return
         for symbol, row in rows.items():
             if symbol in self.account.positions:
+                continue
+            if entry_symbols is not None and symbol not in entry_symbols:
                 continue
             intent = self.strategy.entry_signal(row)
             if intent is None:
@@ -85,6 +101,12 @@ class TradingEngine:
     # -- internals -----------------------------------------------------------
     def _open(self, intent, size, risk_dollars, bar: Bar):
         fill = self.broker.enter(intent.symbol, intent.side, size, bar)
+        if fill is None:
+            # Broker declined the order (e.g. rounded size below the exchange's
+            # minimum amount/cost -- audit 2026-09-18, item #5). Do not record a
+            # phantom position; the strategy will see this symbol as flat and may
+            # re-signal on a later bar.
+            return
         pos = Position(
             symbol=intent.symbol, side=intent.side, entry_time=bar.ts,
             entry_price=fill.price, size=size, risk_dollars=risk_dollars,

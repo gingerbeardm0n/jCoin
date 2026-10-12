@@ -26,7 +26,7 @@ import polars as pl
 
 from jcoin.data.config import LIVE_MARKETS, Market, market_by_label
 from jcoin.data.feed import DataFeed
-from jcoin.data.live_source import get_recent_candles
+from jcoin.data.live_source import get_recent_candles_cached
 from jcoin.engine.broker import PaperBroker
 from jcoin.engine.engine import TradingEngine
 from jcoin.engine.features import compute_features
@@ -44,7 +44,8 @@ class PaperTrader:
     def __init__(self, labels=("BTC", "ETH"), tf="4h", *,
                  strat=StrategyConfig(), risk=RiskConfig(), ks=KillSwitchConfig(),
                  cost_frac=0.0012, start_equity=10_000.0,
-                 state_dir="paper_state", live_markets=None, broker=None):
+                 state_dir="paper_state", live_markets=None, broker=None,
+                 allow_stale_entries: bool = True):
         self.labels = list(labels)
         self.tf = tf
         self.engine = TradingEngine(BreakoutStrategy(strat),
@@ -55,6 +56,11 @@ class PaperTrader:
         self.start_equity = start_equity
         self.persist = True   # live: save every bar; replay sets False (save once at end)
         self.live_markets = {m.label: m for m in (live_markets or LIVE_MARKETS)}
+        # Catch-up backlog bars are hours-old signals by definition. Paper trading is
+        # fine simulating entries on them (default True); real-money runners (see
+        # run_kraken.py) pass False so they only ever manage/exit stale positions and
+        # never OPEN a real position off a stale bar (audit 2026-09-18, item #2).
+        self.allow_stale_entries = allow_stale_entries
 
         self._cycle_phase: str = CYCLE_UNKNOWN  # updated each live bar from BTC history
         self._base_risk = risk                  # original config; bear phase scales it down
@@ -70,7 +76,9 @@ class PaperTrader:
                           self.engine.account.equity, self.engine.account.open_count, self.last_ts)
 
     # -- core processing (shared by replay + live) ---------------------------
-    def process_step(self, ts: dt.datetime, rows: dict[str, dict]) -> None:
+    def process_step(self, ts: dt.datetime, rows: dict[str, dict],
+                      allow_entries: bool = True,
+                      entry_symbols: set[str] | None = None) -> None:
         acct = self.engine.account
         # Macro cycle filter: scale risk to 75% in bear phase instead of disabling.
         # Bear shorts still have positive edge (PF ~1.59) but weaker + funding drag.
@@ -100,7 +108,7 @@ class PaperTrader:
                 self.log.warning("SOFT HALT (%s) -> entries paused", decision.reason)
 
         n_closed_before = len(acct.closed)
-        self.engine.step(ts, rows)
+        self.engine.step(ts, rows, allow_entries=allow_entries, entry_symbols=entry_symbols)
 
         for tr in acct.closed[n_closed_before:]:
             self.ks.on_trade_closed(tr.pnl)
@@ -141,38 +149,110 @@ class PaperTrader:
 
     # -- live mode -----------------------------------------------------------
     def run_live_once(self) -> bool:
-        """Fetch latest closed bars, process the newest common timestamp. Returns True
-        if a new bar was processed."""
+        """Fetch closed bars and process EVERY bar newer than last_ts, in chronological
+        order (audit 2026-09-18, item #2: after any outage the old single-bar logic
+        silently skipped every intermediate bar's signals -- 38% of bars were missed
+        since July). Returns True if at least one new bar was processed.
+
+        Robust to one symbol lagging: a symbol whose fetch fails or is stale/short is
+        logged and excluded from this tick rather than freezing catch-up for everyone
+        else (it just gets no rows at any timestamp until its feed recovers).
+
+        Orphan positions (audit 2026-09-18): engine.step() only manages/enters symbols
+        present in `rows`, so an open position in a symbol that has since fallen out of
+        `self.labels` would otherwise never be fetched, never be managed, and sit stuck
+        forever. Any such symbol is added to the fetch list here so its position keeps
+        getting managed (stops/trailing/exits), but it is excluded from `entry_symbols`
+        so it can never open a NEW position -- only the configured universe can.
+        """
+        open_syms = set(self.engine.account.positions.keys())
+        orphans = sorted(s for s in open_syms if s not in self.labels)
+        fetch_labels = list(self.labels) + orphans
+        if orphans:
+            self.log.warning("managing %d orphan position(s) outside universe: %s",
+                             len(orphans), orphans)
+
         feats = {}
-        for label in self.labels:
+        lagging: list[str] = []
+        self.fetch_failures = lagging  # read by run_paper to decide exit code / ping
+        for label in fetch_labels:
             mkt = self.live_markets.get(label) or market_by_label(label)
-            # Fetch enough bars for cycle filter (2190 needed for 365-day SMA)
-            df = get_recent_candles(mkt, self.tf, limit=2300)
+            try:
+                # Fetch enough bars for cycle filter (2190 needed for 365-day SMA).
+                # Cached on disk (data/live_source.get_recent_candles_cached) so a hot
+                # run only fetches the handful of bars newer than the cache.
+                df = get_recent_candles_cached(mkt, self.tf, self.dir / "cache", limit=2300)
+            except Exception as e:
+                self.log.error("fetch FAILED for %s: %s — excluding it this tick", label, e)
+                lagging.append(label)
+                continue
             if df.height < 60:
-                self.log.warning("insufficient live data for %s", label)
-                return False
+                self.log.warning("insufficient live data for %s (%d bars) — excluding it this tick",
+                                 label, df.height)
+                lagging.append(label)
+                continue
             f = compute_features(df, k=2, atr_period=14).with_columns(symbol=pl.lit(label))
             feats[label] = f
+
+        if not feats:
+            self.log.error("no usable live data for ANY symbol this tick")
+            return False
+        if lagging:
+            self.log.warning("proceeding without lagging/unavailable symbol(s): %s", lagging)
+
         self._refresh_cycle_phase(feats)
-        common_ts = min(f["ts"].max() for f in feats.values())
-        if self.last_ts is not None and common_ts <= self.last_ts:
-            self.log.info("no new closed bar (latest=%s)", common_ts)
+
+        # Union of new-bar timestamps across whichever symbols DID return data, so one
+        # lagging symbol's shorter history can't block catch-up for the rest.
+        new_ts_by_symbol = {
+            label: sorted(t for t in f["ts"].to_list() if self.last_ts is None or t > self.last_ts)
+            for label, f in feats.items()
+        }
+        all_new_ts = sorted({t for ts_list in new_ts_by_symbol.values() for t in ts_list})
+        if not all_new_ts:
+            newest = max(f["ts"].max() for f in feats.values())
+            self.log.info("no new closed bar (latest=%s)", newest)
             return False
-        # Feed-staleness guard (safety item #2): a "latest closed bar" much older than
-        # one bar-interval means the exchange feed is serving stale data — do not manage
-        # stops or open positions against prices that may be hours old.
-        age_h = (dt.datetime.now(dt.timezone.utc) - common_ts).total_seconds() / 3600
+
+        # Feed-staleness guard (safety item #2): if the newest bar ANY symbol can offer
+        # is much older than one bar-interval, the exchange feed itself looks stale --
+        # exclude just that newest bar (don't trade on it) but still catch up everything
+        # older, which is legitimate backlog rather than a live-feed problem.
+        newest_ts = all_new_ts[-1]
+        age_h = (dt.datetime.now(dt.timezone.utc) - newest_ts).total_seconds() / 3600
         if age_h > 9.0:  # 4h bar + 4h tolerance + 1h slack
-            self.log.error("FEED STALE: latest closed bar %s is %.1fh old — skipping this "
-                           "tick rather than trading on stale prices", common_ts, age_h)
+            self.log.error("FEED STALE: latest available bar %s is %.1fh old — excluding it "
+                           "this tick, still catching up older backlog bars", newest_ts, age_h)
+            all_new_ts = all_new_ts[:-1]
+        if not all_new_ts:
             return False
-        rows = {}
-        for label, f in feats.items():
-            r = f.filter(pl.col("ts") == common_ts).select(_FEAT_COLS)
-            if r.height:
-                rows[label] = r.to_dicts()[0]
-        self.process_step(common_ts, rows)
-        return True
+
+        if len(all_new_ts) > 1:
+            self.log.info("CATCH-UP: %d missed bar(s) to process (%s -> %s)",
+                          len(all_new_ts), all_new_ts[0], all_new_ts[-1])
+
+        processed_any = False
+        for ts in all_new_ts:
+            rows = {}
+            for label, f in feats.items():
+                r = f.filter(pl.col("ts") == ts).select(_FEAT_COLS)
+                if r.height:
+                    rows[label] = r.to_dicts()[0]
+            if not rows:
+                continue
+            # Only the newest bar in this batch is "fresh"; anything behind it is a
+            # catch-up bar. allow_stale_entries=False (run_kraken.py) means catch-up
+            # bars only manage/exit existing positions -- never open a new real
+            # position on an hours-old signal.
+            is_newest = ts == all_new_ts[-1]
+            allow_entries = self.allow_stale_entries or is_newest
+            # entry_symbols restricts NEW entries to the configured universe even when
+            # orphan positions are being fetched/managed alongside it this tick.
+            self.process_step(ts, rows, allow_entries=allow_entries,
+                              entry_symbols=set(self.labels))
+            processed_any = True
+
+        return processed_any
 
     # -- replay mode (testing the full stack) --------------------------------
     def run_replay(self, start=None, end=None) -> None:

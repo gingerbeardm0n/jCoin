@@ -30,6 +30,7 @@ import sys
 import dotenv
 dotenv.load_dotenv()  # loads .env from cwd or any parent directory
 
+from jcoin.data.config import DEFAULT_LIVE_LABELS
 from jcoin.engine.kill_switch import KillSwitchConfig
 from jcoin.engine.risk import RiskConfig
 from jcoin.engine.strategy import StrategyConfig
@@ -42,8 +43,9 @@ def main(argv=None) -> int:
     p = argparse.ArgumentParser(description="jCoin Kraken Futures trader")
     p.add_argument("--live", action="store_true",
                    help="Use LIVE endpoint (real money). Default: demo.")
-    p.add_argument("--labels", nargs="+",
-                   default=["BTC", "ETH", "EGLD", "SAND", "IMX", "ADA", "XRP", "AVAX", "HBAR"])
+    # --symbols is an alias for --labels (audit 2026-09-18).
+    p.add_argument("--labels", "--symbols", dest="labels", nargs="+",
+                   default=list(DEFAULT_LIVE_LABELS))
     p.add_argument("--tf", default="4h")
     p.add_argument("--state-dir", default="kraken_state")
     p.add_argument("--start-equity", type=float, default=10_000.0,
@@ -90,6 +92,10 @@ def main(argv=None) -> int:
         ks=KillSwitchConfig(max_dd_pct=args.max_dd_pct),
         start_equity=args.start_equity,
         state_dir=args.state_dir,
+        # Real orders only ever go on the NEWEST bar's signal -- never open a real
+        # position off a catch-up backlog bar that is hours old (audit 2026-09-18,
+        # item #2). Paper trading defaults to True (fine to simulate on backlog bars).
+        allow_stale_entries=False,
     )
 
     import logging

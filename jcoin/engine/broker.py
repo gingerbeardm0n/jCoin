@@ -17,7 +17,11 @@ from jcoin.engine.types import Bar, Fill, Position, Side
 
 class Broker(ABC):
     @abstractmethod
-    def enter(self, symbol: str, side: Side, size: float, bar: Bar) -> Fill: ...
+    def enter(self, symbol: str, side: Side, size: float, bar: Bar) -> Fill | None:
+        """Return the Fill, or None if the order was declined (e.g. below the
+        exchange's minimum size/notional -- see KrakenFuturesBroker.enter). Simulated
+        brokers (backtest/paper) always fill, never return None."""
+        ...
 
     @abstractmethod
     def exit(self, pos: Position, price: float, bar: Bar, reason: str) -> Fill: ...

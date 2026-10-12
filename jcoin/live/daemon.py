@@ -25,7 +25,8 @@ import os
 import subprocess
 import sys
 import time
-import urllib.request
+
+from jcoin.live.ping import ping as _ping_alive
 
 log = logging.getLogger("jcoin.daemon")
 
@@ -33,20 +34,12 @@ log = logging.getLogger("jcoin.daemon")
 # disks, and disks cannot be shared between services -- so the local Windows watchdog
 # (jcoin/live/watchdog.py, a separate scheduled task reading the SAME state.json) has
 # no equivalent on Render; a second service literally cannot see this worker's state.
-# Fix: an optional dead-man's-switch ping after every successful tick. Point PING_URL at
-# any uptime-monitor "ping" endpoint (healthchecks.io / cronitor / better-uptime all use
+# Fix: an optional dead-man's-switch ping after every successful tick. Point JCOIN_PING_URL
+# at any uptime-monitor "ping" endpoint (healthchecks.io / cronitor / better-uptime all use
 # this exact pattern: they alert YOU if the ping doesn't arrive within the expected
 # window). Unset locally -> no-op, the Windows watchdog task covers that deployment.
-_PING_URL = os.environ.get("JCOIN_PING_URL")
-
-
-def _ping_alive() -> None:
-    if not _PING_URL:
-        return
-    try:
-        urllib.request.urlopen(_PING_URL, timeout=10)
-    except Exception as e:
-        log.warning("heartbeat ping failed (non-fatal): %s", e)
+# (audit 2026-09-18: the ping call itself now lives in jcoin/live/ping.py, shared with
+# run_paper.py and watchdog.py instead of being duplicated here.)
 
 # On a hosted deploy (Render, etc.) the container filesystem is thrown away on every
 # restart/redeploy UNLESS state lives on a mounted persistent disk. Set JCOIN_STATE_DIR

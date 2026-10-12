@@ -71,11 +71,18 @@ DEFAULT_MARKETS: list[Market] = [
     Market(label="NEAR", exchange="binanceusdm", symbol="NEARUSDT"),
 ]
 
-# Live-venue markets for paper/live (sourced via ccxt). Kraken: US-legal, supports
-# native 4h (240-min) candles and returns ~720 bars — enough trailing history for the
-# regime/ATR features each call. (Coinbase has no native 4h granularity + a 300-bar cap.)
+# Live-venue markets for paper/live (sourced via ccxt).
+# CORRECTION (audit 2026-09-18): this comment used to call krakenfutures "US-legal" --
+# that is WRONG. Kraken Futures (futures.kraken.com) does NOT accept US residents for
+# real order placement; it has only ever been safe to use here as a market-data source
+# for paper trading. The actual live venue is still TBD -- Coinbase US nano perpetuals
+# are a candidate, but nothing has been selected/verified yet. Do not route real orders
+# to krakenfutures. Native 4h (240-min) candles here return ~720 bars — enough trailing
+# history for the regime/ATR features each call. (Coinbase has no native 4h granularity
+# + a 300-bar cap, part of why the venue choice is still open.)
 LIVE_MARKETS: list[Market] = [
-    # krakenfutures (futures.kraken.com) — US-legal perp swaps, confirmed active 2026-06-22.
+    # krakenfutures (futures.kraken.com) — data source only (paper trading); confirmed
+    # active 2026-06-22. NOT available to US residents for real orders.
     # Symbol format: {BASE}/USD:USD (linear, USD-settled perpetual swap).
     Market(label="BTC",  exchange="krakenfutures", symbol="BTC/USD:USD"),
     Market(label="ETH",  exchange="krakenfutures", symbol="ETH/USD:USD"),
@@ -91,6 +98,13 @@ LIVE_MARKETS: list[Market] = [
     Market(label="AVAX", exchange="krakenfutures", symbol="AVAX/USD:USD"),
     Market(label="HBAR", exchange="krakenfutures", symbol="HBAR/USD:USD"),
 ]
+
+# Default symbol universe for live/paper runners (audit 2026-09-18: the full 9-coin
+# universe above was the DEFAULT for scheduled runs, which multiplied fetch cost and
+# catch-up cost when the runner missed bars. BTC+ETH is now the default; the other
+# Market entries in LIVE_MARKETS above stay defined and usable via explicit
+# `--labels`/`--symbols` once re-validated at size.)
+DEFAULT_LIVE_LABELS: list[str] = ["BTC", "ETH"]
 
 # Base timeframe we fetch + store. Higher timeframes are derived on read in the
 # DataFeed (resample), so stored data has a single source of truth and cannot

@@ -183,8 +183,9 @@ def main(argv=None) -> int:
     print("\n" + "=" * 70)
     if n_fail == 0:
         print(f"ALL CHECKS PASSED across {len(live_trades)} live trade(s).")
-        print("NOTE: parity confidence scales with n. Spec bar: >= 8 clean live trades "
-              "before real money.")
+        print("NOTE: parity confidence scales with n. Spec bar is time-based, not a trade "
+              "count: paper >= 30 days, then live at minimum size >= 30 days, before scaling "
+              "(see STRATEGY_SPEC.md go-live ramp).")
     else:
         print(f"{n_fail} CHECK(S) FAILED — fix before real money. A parity failure here "
               "is exactly the silent-drift bug class that killed jTrader.")
