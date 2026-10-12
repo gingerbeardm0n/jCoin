@@ -109,12 +109,18 @@ sudo -u jcoin .venv/bin/pip install -r requirements.txt   # only if deps changed
 sudo systemctl restart jcoin
 ```
 
-## 8. When ready for real Kraken trading (not paper)
+## 8. Real-money trading
 
-Edit `/etc/systemd/system/jcoin.service`, change `--mode paper` to `--mode kraken`
-(or `both` to run both side by side), then:
+Not yet. The live venue is undecided: `krakenfutures` (futures.kraken.com) is not
+available to US residents, and Kraken Derivatives US has no trading API (see
+`AUDIT_2026-09-18.md`). The leading candidate is Coinbase US nano futures, which
+needs a new broker adapter. Until then the service runs `--mode paper`, which is
+also the daemon's default.
 
-```bash
-sudo systemctl daemon-reload
-sudo systemctl restart jcoin
-```
+## Monitoring
+
+- `journalctl -u jcoin -f` — live output from the daemon and each run
+- `tail -f /opt/jcoin/logs/daemon.log` — daemon's own log (rotates at 5 MB)
+- `tail -f /opt/jcoin/paper_state/paper.log` — trade decisions
+- healthchecks.io: the daemon runs hourly and pings after each successful run, so
+  set the check's period to 1 hour and grace to 1 hour.

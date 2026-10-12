@@ -7,6 +7,8 @@ Ordered. Top item is next. (Updated 2026-10-12.)
 - [ ] Laptop power: sleep "when plugged in" = Never (Settings → System → Power)
 - [ ] Coinbase: account? futures enabled? fund $1k or $2k?
 - [ ] Reddit: watch replies on the two posts (r/algotradingcrypto, r/CryptoTradingFloor); build karma for r/algotrading
+- [ ] Google Cloud: activate billing (free trial), create project `jcoin`, then hand off to Claude for VM setup
+- [ ] ~80 days after GCP free trial starts: click "Upgrade" to a paid account so the Always Free VM isn't paused when the trial ends (still $0 within free limits)
 - [ ] Decide: should the daily −3% loss halt also flatten open positions? (currently pauses entries only)
 
 ## Claude's queue

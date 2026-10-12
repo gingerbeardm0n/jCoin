@@ -12,8 +12,10 @@ EnvironmentFile=/opt/jcoin/.env
 ExecStart=/opt/jcoin/.venv/bin/python -m jcoin.live.daemon --mode paper
 Restart=always
 RestartSec=30
-StandardOutput=append:/opt/jcoin/logs/daemon.log
-StandardError=append:/opt/jcoin/logs/daemon.log
+# The daemon writes its own rotating logs/daemon.log; stdout/stderr (incl. the
+# runners' output) go to the journal, which rotates itself: journalctl -u jcoin
+StandardOutput=journal
+StandardError=journal
 
 [Install]
 WantedBy=multi-user.target
