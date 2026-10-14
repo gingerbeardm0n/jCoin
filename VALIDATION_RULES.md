@@ -38,6 +38,7 @@ forward, one row per evaluation.
 | **Total (floor)** | — | **≥1,000 config-by-coin evaluations** (864 from `optimize_full.py` [432×2] + 112 from `grid_per_coin.py` [28×4] + additional coin-gate passes across ~20 coins in the `validate_coins*` series) | ~20 | Selection basis for the now-reverted 9-coin universe | Yes |
 | 2026-09-18 | fresh replay, unmodified engine | live config | 9 | Confirm 40%-drawdown halt reproduces (Apr 2025→May 2026) | No (pre-06-01 only) |
 | 2026-09-18 | fresh replay, unmodified engine | live config vs BTC+ETH vs 7-coin | 9 / 2 / 7 | Report clean OOS numbers for the audit — **results reported, not used to pick a config** | **Yes — logged for transparency; not a selection step** |
+| 2026-10-14 | (protocol only, no runs) | — | — | Head-to-head protocol A vs B registered in §5 **before** any results | No |
 | — | — | — | — | *(add new rows here going forward)* | — |
 
 ## 3. The gate definition
@@ -59,3 +60,39 @@ multiple-testing bias in performance-metric selection, see Bailey, D. H. & Lópe
 (2014), "The Deflated Sharpe Ratio: Correcting for Selection Bias, Backtest Overfitting, and
 Non-Normality," SSRN 2460551. Any future gate should account for the number of
 configurations/coins tried, not just the raw PF/MAR of the survivor.
+
+
+## 5. Head-to-head protocol: A vs B (registered 2026-10-14, before any results)
+
+Written and committed before any Phase 1/2 numbers exist. The commit date is the proof.
+
+**Contestants (fixed configs, no tuning):**
+- **A: current bot.** BTC+ETH, 4h trend-aligned breakout, ATR init 1.0 / trail 6.0, max_hold 120,
+  1% risk, max 1 per symbol / 2 concurrent. Costs: 12bp round trip **plus perp funding**
+  (Binance history), reported at 1× and 2× funding. Decision uses **1× funding**.
+- **B: daily basket, long-only spot.** Point-in-time top 30 USDT coins by trailing 90-day dollar
+  volume (stablecoins excluded, delisted coins included), long when EMA(20) > EMA(100), else flat;
+  equal weight, total exposure ≤ 1× equity, rebalance every 14 days, no stops. Costs: 0.40% taker
+  + 0.10% slippage per side on every rebalance trade.
+  Sensitivity variant EMA(50)/EMA(200) is **reported only, never used to decide**.
+- **Benchmarks (context only):** BTC buy-and-hold; equal-weight top-30 buy-and-hold, same rebalance.
+
+**Data:** dev period 2021-01-01 → 2026-05-31 only, via `jcoin/research/splits.py`
+(slices 2021, 2022, 2023, 2024, 2025, 2026H1).
+
+**Metrics:** CAGR, max drawdown, MAR (CAGR ÷ max drawdown), Sharpe, number of trades, average R (A),
+turnover (B), per slice and full period.
+
+**Decision rule:** B replaces A **only if both** hold:
+1. B's full-dev-period Sharpe after costs is higher than A's (1× funding), **and**
+2. B's MAR beats A's in **at least 4 of the 6** slices.
+
+Otherwise A stays. Ties go to A (incumbent; no switching cost to justify).
+
+**Sealed-window confirmation (the only allowed look):** after the winner is named, run **both**
+once on 2026-06-01 → present, log it in the Looks Log, and report it. It **confirms, it does not
+select**: the winner is not swapped based on it. If the winner's sealed-window drawdown exceeds its
+own worst dev-slice drawdown, **stop and reassess** with Joel before paper-trading it.
+
+**Disclosure:** A's behaviour on 2026-06-01 → 2026-09-18 was already seen once (2026-09-18 audit
+replay, logged above), so A's sealed look is not fully blind; B's is.
