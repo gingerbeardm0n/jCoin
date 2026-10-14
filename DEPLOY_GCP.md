@@ -41,29 +41,25 @@ browser terminal, no key setup needed):
 gcloud compute ssh jcoin-bot --zone=us-central1-a
 ```
 
-## 3. Give the VM read-only access to the repo (deploy key)
-
-The repo is private, so the VM needs its own key — never reuse your personal one.
+## 3. Service user + read-only deploy key
 
 ```bash
-ssh-keygen -t ed25519 -C "jcoin-vm" -f ~/.ssh/id_ed25519 -N ""
-cat ~/.ssh/id_ed25519.pub
+sudo useradd --system --create-home --shell /usr/sbin/nologin jcoin
+sudo -u jcoin mkdir -p /home/jcoin/.ssh
+sudo -u jcoin ssh-keygen -q -t ed25519 -C jcoin-vm-deploy -f /home/jcoin/.ssh/id_ed25519 -N ''
+sudo cat /home/jcoin/.ssh/id_ed25519.pub
 ```
 
-Copy that output. On GitHub: repo → **Settings → Deploy keys → Add deploy key** →
-paste it, leave "Allow write access" **unchecked** (read-only — this key can never
-push, only pull).
+GitHub: repo → **Settings → Deploy keys → Add deploy key** → paste, leave "Allow write
+access" **unchecked**. The key belongs to the `jcoin` user, which is what clones and pulls.
 
 ## 4. Run the setup script
 
 ```bash
 sudo apt-get install -y git
-git clone git@github.com:gingerbeardm0n/jCoin.git /tmp/jcoin-bootstrap
+sudo -u jcoin env GIT_SSH_COMMAND="ssh -o StrictHostKeyChecking=accept-new"     git clone git@github.com:gingerbeardm0n/jCoin.git /tmp/jcoin-bootstrap
 sudo bash /tmp/jcoin-bootstrap/deploy/setup-vm.sh
 ```
-
-(The script re-clones properly into `/opt/jcoin` as the service user — the `/tmp`
-clone above is just to get `setup-vm.sh` itself onto the box first.)
 
 ## 5. Add your secrets (never committed, created by hand)
 
