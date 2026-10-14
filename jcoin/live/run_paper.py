@@ -82,8 +82,22 @@ def main(argv=None) -> int:
         raise
 
     a = trader.engine.account
+    # win% / avg R since the last equity reset. reset_equity() clears equity_curve, so
+    # its first timestamp marks the restart; closed[] still holds older history (incl.
+    # seeded backtest trades), which would make an all-trades average meaningless.
+    since = a.equity_curve[0][0] if a.equity_curve else None
+    recent = [t for t in a.closed if since is None or t.entry_time >= since]
+    if recent:
+        wins = sum(1 for t in recent if t.R > 0)
+        stats = (f"win%={100 * wins / len(recent):.1f}% | "
+                 f"avgR={sum(t.R for t in recent) / len(recent):+.3f} "
+                 f"over {len(recent)} trades")
+    else:
+        stats = "win%=n/a | avgR=n/a over 0 trades"
+    since_txt = since.date().isoformat() if since else "start"
     print(f"\nSUMMARY | equity=${a.equity:,.2f} | open={a.open_count} | "
-          f"closed_trades={len(a.closed)} | last_ts={trader.last_ts}")
+          f"closed_trades={len(a.closed)} | {stats} since {since_txt} | "
+          f"last_ts={trader.last_ts}")
     return 0
 
 

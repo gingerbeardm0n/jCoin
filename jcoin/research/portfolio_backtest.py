@@ -27,22 +27,76 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+from pathlib import Path
 
 import numpy as np
 import polars as pl
 
+from jcoin.data.config import DATA_DIR
 from jcoin.data.feed import DataFeed
 from jcoin.strategy.breakout import detect_breakout
 from jcoin.strategy.regime import REGIME_DOWNTREND, REGIME_UPTREND
 from jcoin.research.backtest_breakout import _atr
 
 
-def build_trades(tf, labels, atr_period, atr_init, atr_trail, max_hold, cost_frac):
-    """Per symbol: produce closed trades with entry/exit times + R outcome (net of cost)."""
+FUNDING_DIR = DATA_DIR / "funding" / "binanceusdm"
+
+
+def load_funding(label, funding_dir=FUNDING_DIR):
+    """Funding prints for one coin -> (ts_ms int64 array, rate float array), sorted.
+
+    Timestamps are rounded to the nearest minute: Binance's raw `calc_time` carries a few
+    ms of jitter (e.g. 00:00:00.002), which would otherwise make a print on a bar boundary
+    fall randomly inside or outside a trade's (entry, exit] window.
+    """
+    df = pl.read_parquet(Path(funding_dir) / label / "funding.parquet").sort("ts")
+    ts = df["ts"].to_numpy().astype(np.int64)
+    ts = (ts + 30_000) // 60_000 * 60_000
+    return ts, df["funding_rate"].to_numpy().astype(float)
+
+
+def funding_rate_sum(ts_ms, rates, entry_time, exit_time):
+    """Sum of funding_rate over prints t with entry_time < t <= exit_time."""
+    lo = int(entry_time.timestamp() * 1000)
+    hi = int(exit_time.timestamp() * 1000)
+    return float(rates[(ts_ms > lo) & (ts_ms <= hi)].sum())
+
+
+def funding_return(side, rate_sum):
+    """Funding as a signed FRACTION of notional from the trader's side.
+
+    A positive funding rate means longs pay shorts: a LONG pays (-rate_sum), a SHORT
+    receives (+rate_sum). Positive result = money received.
+    """
+    return -rate_sum if side == "long" else rate_sum
+
+
+def funding_to_R(funding_ret, stop_dist):
+    """Convert a funding fraction-of-notional to R-multiples.
+
+    Identical conversion to cost: R = fraction_of_entry_price / stop_dist, where
+    stop_dist = |entry - stop| / entry (so the fraction and the stop are both measured
+    against the same entry price). Funding is charged on entry notional (price drift
+    over the hold is ignored, a small approximation).
+    """
+    return funding_ret / stop_dist
+
+
+def build_trades(tf, labels, atr_period, atr_init, atr_trail, max_hold, cost_frac,
+                 funding_mult=0.0, funding_dir=FUNDING_DIR, end=None):
+    """Per symbol: produce closed trades with entry/exit times + R outcome (net of cost).
+
+    funding_mult scales Binance perp funding (0 = ignore funding, the original
+    behaviour; 1 = historical; 2 = double). `end` truncates candles (inclusive bound on
+    candle open time) so research can stay out of the sealed window.
+    Each trade also carries `funding_R` (already scaled by funding_mult, + = received).
+    """
     feed = DataFeed()
     trades = []
     for label in labels:
-        df = feed.get_candles(label, tf)
+        df = feed.get_candles(label, tf, end=end)
+        if funding_mult:
+            f_ts, f_rate = load_funding(label, funding_dir)
         df2, sigs = detect_breakout(df, k=2)
         high = df2["high"].to_numpy()
         low = df2["low"].to_numpy()
@@ -85,16 +139,24 @@ def build_trades(tf, labels, atr_period, atr_init, atr_trail, max_hold, cost_fra
                 exit_price = close[exit_idx]
             gross = (exit_price - entry) / entry if long else (entry - exit_price) / entry
             net = gross - cost_frac
-            R = net / stop_dist
+            fund_R = 0.0
+            if funding_mult:
+                rsum = funding_rate_sum(f_ts, f_rate, ts[i], ts[exit_idx])
+                fund_R = funding_mult * funding_to_R(funding_return(s["side"], rsum), stop_dist)
+            R = net / stop_dist + fund_R
             trades.append({
                 "symbol": label, "entry_time": ts[i], "exit_time": ts[exit_idx],
-                "side": s["side"], "R": R,
+                "side": s["side"], "R": R, "funding_R": fund_R,
             })
     return sorted(trades, key=lambda t: t["entry_time"])
 
 
-def run_portfolio(trades, start_equity, risk_frac, max_per_symbol, max_concurrent):
-    """Event-driven equity simulation. Returns equity curve + taken-trade R list."""
+def run_portfolio(trades, start_equity, risk_frac, max_per_symbol, max_concurrent,
+                  taken_trades=None):
+    """Event-driven equity simulation. Returns equity curve + taken-trade R list.
+
+    If `taken_trades` is a list, the taken trade dicts are appended to it (in exit order).
+    """
     events = []
     for idx, t in enumerate(trades):
         events.append((t["entry_time"], 0, idx))  # 0 = entry sorts before exit at same ts
@@ -127,6 +189,8 @@ def run_portfolio(trades, start_equity, risk_frac, max_per_symbol, max_concurren
             open_by_symbol[t["symbol"]] -= 1
             open_count -= 1
             taken_R.append(t["R"])
+            if taken_trades is not None:
+                taken_trades.append(t)
             curve.append((time, equity))
     return curve, taken_R
 

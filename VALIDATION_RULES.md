@@ -39,6 +39,8 @@ forward, one row per evaluation.
 | 2026-09-18 | fresh replay, unmodified engine | live config | 9 | Confirm 40%-drawdown halt reproduces (Apr 2025→May 2026) | No (pre-06-01 only) |
 | 2026-09-18 | fresh replay, unmodified engine | live config vs BTC+ETH vs 7-coin | 9 / 2 / 7 | Report clean OOS numbers for the audit — **results reported, not used to pick a config** | **Yes — logged for transparency; not a selection step** |
 | 2026-10-14 | (protocol only, no runs) | — | — | Head-to-head protocol A vs B registered in §5 **before** any results | No |
+| 2026-10-14 | `phase1_honest_a.py` (first baseline run, discarded) | A, fixed config | 2 | Unbounded 1m data let a few trades entered before 06-01 exit after it; numbers discarded, all reported results capped at 2026-05-31 | **Yes (minor leak, discarded)** |
+| 2026-10-14 | `phase1_honest_a.py`, `basket_trend_backtest.py` | A fixed; B fixed + 2 report-only variants | 2 / ≤30 of 729 | Head-to-head on dev period; decision recorded in `pipeline/HEAD_TO_HEAD_2026-10.md` (A stays) | No |
 | — | — | — | — | *(add new rows here going forward)* | — |
 
 ## 3. The gate definition
