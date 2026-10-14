@@ -17,7 +17,8 @@ Ordered. Top item is next. (Updated 2026-10-12.)
 2. [ ] "Does this look right?" sanity check, every tick, alert even when nothing errors. E.g. cycle phase unchanged for unusually long, newest bar older than expected, price/ATR outside historical range. Do after phone alerts are live so it actually reaches Joel. (Idea from r/algotradingcrypto "5 silent data bugs" post; we've hit this bug family 3×.)
 3. [ ] Reconcile code: confirm an exchange API error is treated as "unknown", never as "no position" (failure story from research sweep).
 4. [ ] Write the kill rule before going live (e.g. stop if drawdown > 1.5–2× backtest worst; a losing streak alone is not a reason).
-5. [ ] Coinbase US nano futures adapter (official `coinbase-advanced-py` SDK, not ccxt) — after Joel's Coinbase answer.
+5. [ ] Venue research, side by side: (a) Coinbase US nano futures (hourly funding, API via `coinbase-advanced-py`); (b) **CME micro crypto futures via Interactive Brokers API** (no funding; must roll contracts; Micro BTC 0.1 BTC ≈ $8k is too big for $1k, Micro ETH 0.1 ETH ≈ $400 may fit; check for smaller spot-quoted contracts). Source: u/moritz_ka. Pick one before building an adapter.
+5b. [ ] Broker adapter for the chosen venue (Coinbase: official `coinbase-advanced-py` SDK, not ccxt) (official `coinbase-advanced-py` SDK, not ccxt)
 6. [ ] After the GCP public IPv4 starts costing (~$3.65/mo after trial), consider IPv6-only (GitHub has no IPv6, so updates would need another path)
 7. [ ] Remove unused `run_paper_live.ps1` / `run_watchdog.ps1` once the windowless `scripts/task_runner.pyw` launcher has run cleanly for a week.
 

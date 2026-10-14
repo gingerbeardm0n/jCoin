@@ -20,6 +20,8 @@ Each entry: the takeaway, who said it, and whether it changes anything we do.
 | Do walk-forward + Monte Carlo before trusting anything; ~40 trades per tunable parameter | PepMar000 | Partly done; Monte Carlo not yet |
 | Read Carver's "Leveraged Trading" (small accounts) and "Systematic Trading" | iSnake37 | Reading list |
 
+| US venues: Kraken US perps (Bitnomial, 8h funding — but we found no retail API), Coinbase nano (hourly funding), or **CME micro futures via a futures broker (no funding; must roll contracts)** | moritz_ka | CME route not yet evaluated — add to venue research |
+
 Ignore / be careful: QuanTradin (promoting own site), Appropriate-Talk-735 ("PM me" — don't take trading DMs).
 
 ### The basket question
