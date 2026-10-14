@@ -100,7 +100,7 @@ def tick(mode: str) -> dict[str, int]:
         if rc == 0:
             log.info("%s exit=0", module)
         else:
-            log.warning("%s exit=%d (2=error halt, 3=flatten latch, 4=market data failed)",
+            log.warning("%s exit=%d (2=error halt, 3=flatten latch, 4=market data failed, 5=kill-switch latch)",
                         module, rc)
     return codes
 

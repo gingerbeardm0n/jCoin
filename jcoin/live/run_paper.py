@@ -16,7 +16,10 @@ from jcoin.data.config import DEFAULT_LIVE_LABELS
 from jcoin.engine.kill_switch import KillSwitchConfig
 from jcoin.engine.risk import RiskConfig
 from jcoin.engine.strategy import StrategyConfig
+from jcoin.data.config import LIVE_MARKETS
 from jcoin.live.error_breaker import ErrorBreaker
+from jcoin.live.funding import KrakenFundingSource
+from jcoin.live import killswitch_latch
 from jcoin.live.paper_runner import PaperTrader
 from jcoin.live.ping import ping
 from jcoin.live import remote_flatten
@@ -34,8 +37,13 @@ def main(argv=None) -> int:
     p.add_argument("--state-dir", default="paper_state")
     p.add_argument("--start-equity", type=float, default=10_000)
     p.add_argument("--risk-frac", type=float, default=0.01)
-    p.add_argument("--max-dd-pct", type=float, default=0.40,
-                   help="kill-switch hard halt; set ABOVE strategy's expected DD (~27%)")
+    # LIVE runner defaults = the fixed kill rule in KILL_RULE.md (99th-percentile bad-luck
+    # year for strategy A). Engine/backtest module defaults are deliberately different.
+    p.add_argument("--max-dd-pct", type=float, default=0.398,
+                   help="kill-switch hard halt on drawdown from peak (KILL_RULE.md: 39.8%%)")
+    p.add_argument("--max-losing-streak", type=int, default=33,
+                   help="kill-switch hard halt when MORE than this many consecutive closed "
+                        "trades have R<=0 (KILL_RULE.md: 33, the 34th trips); 0 = off")
     p.add_argument("--reset-equity", type=float, default=None,
                    help="reset account equity to this value and drop open positions, then run")
     args = p.parse_args(argv)
@@ -49,11 +57,20 @@ def main(argv=None) -> int:
         print("HALTED by remote flatten latch — see FLATTEN_HALT.latch in state dir.")
         return 3
 
+    if killswitch_latch.is_latched(args.state_dir):
+        print("HALTED by kill-switch latch — see KILLSWITCH_HALT.latch in state dir "
+              "and KILL_RULE.md for the human-review restart procedure.")
+        return 5
+
+    # Perp funding accrual is paper-only (live mode); replay runs on stored history
+    # with no funding feed, as before.
+    funding = KrakenFundingSource({m.label: m for m in LIVE_MARKETS}) if args.mode == "live" else None
     trader = PaperTrader(
         labels=args.labels, tf=args.tf,
         strat=StrategyConfig(), risk=RiskConfig(args.risk_frac, 1, 2),
-        ks=KillSwitchConfig(max_dd_pct=args.max_dd_pct),
-        start_equity=args.start_equity, state_dir=args.state_dir,
+        ks=KillSwitchConfig(max_dd_pct=args.max_dd_pct,
+                            max_losing_streak=args.max_losing_streak),
+        start_equity=args.start_equity, state_dir=args.state_dir, funding=funding,
     )
 
     if args.reset_equity is not None:
@@ -97,7 +114,7 @@ def main(argv=None) -> int:
     since_txt = since.date().isoformat() if since else "start"
     print(f"\nSUMMARY | equity=${a.equity:,.2f} | open={a.open_count} | "
           f"closed_trades={len(a.closed)} | {stats} since {since_txt} | "
-          f"last_ts={trader.last_ts}")
+          f"last_ts={trader.last_ts} | funding_missing_bars={trader.funding_missing_bars}")
     return 0
 
 

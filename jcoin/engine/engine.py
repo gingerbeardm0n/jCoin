@@ -79,13 +79,15 @@ class TradingEngine:
         to match reality. Used by live reconciliation, never by backtest/paper (parity
         untouched — this path only exists because a real exchange can act between ticks)."""
         gross = (price - pos.entry_price) * pos.side.sign * pos.size
-        net = gross - pos.entry_cost
-        self.account.equity += net
+        net = gross - pos.entry_cost - pos.funding
+        # pos.funding was already deducted from equity bar-by-bar as it accrued (paper
+        # trading); add it back here so it is not charged twice. Always 0.0 in backtest.
+        self.account.equity += net + pos.funding
         R = net / pos.risk_dollars if pos.risk_dollars else 0.0
         self.account.closed.append(ClosedTrade(
             symbol=pos.symbol, side=pos.side, entry_time=pos.entry_time, exit_time=ts,
             entry_price=pos.entry_price, exit_price=price, size=pos.size,
-            pnl=net, R=R, exit_reason=reason,
+            pnl=net, R=R, exit_reason=reason, funding=pos.funding,
         ))
         self.account.equity_curve.append((ts, self.account.equity))
         del self.account.positions[pos.symbol]
@@ -120,13 +122,14 @@ class TradingEngine:
     def _close(self, pos: Position, price: float, bar: Bar, reason: str):
         fill = self.broker.exit(pos, price, bar, reason)
         gross = (fill.price - pos.entry_price) * pos.side.sign * pos.size
-        net = gross - pos.entry_cost - fill.cost
-        self.account.equity += net
+        net = gross - pos.entry_cost - fill.cost - pos.funding
+        # funding already deducted from equity as it accrued (paper only) -- see force_close
+        self.account.equity += net + pos.funding
         R = net / pos.risk_dollars if pos.risk_dollars else 0.0
         self.account.closed.append(ClosedTrade(
             symbol=pos.symbol, side=pos.side, entry_time=pos.entry_time, exit_time=bar.ts,
             entry_price=pos.entry_price, exit_price=fill.price, size=pos.size,
-            pnl=net, R=R, exit_reason=reason,
+            pnl=net, R=R, exit_reason=reason, funding=pos.funding,
         ))
         self.account.equity_curve.append((bar.ts, self.account.equity))
         del self.account.positions[pos.symbol]

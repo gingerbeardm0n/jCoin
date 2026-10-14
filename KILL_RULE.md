@@ -47,5 +47,24 @@ the data, the market regime, or the code), but a pass does not prove A is fine.
    restarts. Restarting is a written, dated decision, not a flag flip, and the
    thresholds above do not move to make a restart easier.
 
-Until the thresholds are wired into `KillSwitchConfig` (Phase 4), the check is manual
-and done weekly at minimum, from `paper_state/state.json`.
+## Implementation (wired 2026-10-14)
+
+- `KillSwitchConfig.max_dd_pct` and `max_losing_streak` (jcoin/engine/kill_switch.py). The
+  engine/backtest defaults are unchanged (0.25 and 0 = off); the LIVE runners
+  (`run_paper.py`, `run_kraken.py`, `scripts/task_runner.pyw`, `run_paper_live.ps1`)
+  default to `--max-dd-pct 0.398 --max-losing-streak 33`, so laptop and VM match.
+- The streak counts closed trades by net R (after costs and funding), in exit order;
+  `KillSwitchState.nonwin_streak` is persisted in state.json. The trade that makes it 34
+  trips the halt immediately and the runner flattens in the same step.
+- A hard halt flattens every position, sets `hard_halted` (persisted), and writes
+  `KILLSWITCH_HALT.latch` into the state dir. While that file exists `run_paper` and
+  `run_kraken` exit with code 5 before touching anything, and `reset_equity()` raises.
+- **Restart = human action:** review, write the dated decision, delete
+  `KILLSWITCH_HALT.latch`, then run once with `--reset-equity <amount>` (new clock).
+  Deleting the latch alone does nothing useful: the persisted `hard_halted` flag
+  re-latches on the next bar. The thresholds do not change.
+- Mark-to-market caveat: paper `account.equity` is realized P&L only (open positions are
+  not marked), so the paper drawdown check lags open-trade losses until they close.
+
+Paper P&L also now accrues Kraken perp funding (jcoin/live/funding.py); it is part of
+each trade's R, so it feeds this rule.

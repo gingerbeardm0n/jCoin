@@ -36,7 +36,7 @@ from jcoin.engine.risk import RiskConfig
 from jcoin.engine.strategy import StrategyConfig
 from jcoin.live.error_breaker import ErrorBreaker
 from jcoin.live.kraken_trader import KrakenTrader
-from jcoin.live import remote_flatten
+from jcoin.live import killswitch_latch, remote_flatten
 
 
 def main(argv=None) -> int:
@@ -51,7 +51,11 @@ def main(argv=None) -> int:
     p.add_argument("--start-equity", type=float, default=10_000.0,
                    help="Starting equity (informational — real equity pulled from Kraken)")
     p.add_argument("--risk-frac", type=float, default=0.01)
-    p.add_argument("--max-dd-pct", type=float, default=0.40)
+    # LIVE runner defaults = the fixed kill rule (KILL_RULE.md); engine defaults differ.
+    p.add_argument("--max-dd-pct", type=float, default=0.398)
+    p.add_argument("--max-losing-streak", type=int, default=33,
+                   help="hard halt when MORE than this many consecutive closed trades have "
+                        "R<=0 (34th trips); 0 = off")
     args = p.parse_args(argv)
 
     demo = not args.live
@@ -81,6 +85,11 @@ def main(argv=None) -> int:
         print("HALTED by remote flatten latch — see FLATTEN_HALT.latch in state dir.")
         return 3
 
+    if killswitch_latch.is_latched(args.state_dir):
+        print("HALTED by kill-switch latch — see KILLSWITCH_HALT.latch in state dir "
+              "and KILL_RULE.md for the human-review restart procedure.")
+        return 5
+
     trader = KrakenTrader(
         api_key=api_key,
         api_secret=api_secret,
@@ -89,7 +98,8 @@ def main(argv=None) -> int:
         tf=args.tf,
         strat=StrategyConfig(),
         risk=RiskConfig(args.risk_frac, 1, 2),
-        ks=KillSwitchConfig(max_dd_pct=args.max_dd_pct),
+        ks=KillSwitchConfig(max_dd_pct=args.max_dd_pct,
+                            max_losing_streak=args.max_losing_streak),
         start_equity=args.start_equity,
         state_dir=args.state_dir,
         # Real orders only ever go on the NEWEST bar's signal -- never open a real

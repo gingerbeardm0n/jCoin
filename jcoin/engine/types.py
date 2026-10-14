@@ -59,6 +59,8 @@ class Position:
     entry_cost: float = 0.0     # round-trip cost charged at entry
     stop_order_id: str | None = None      # resting exchange stop order id (live trading only)
     stop_order_price: float | None = None  # trigger price the resting order was last placed/moved at
+    funding: float = 0.0        # cumulative $ funding PAID while open (negative = received); paper only
+    funding_ts: dt.datetime | None = None  # bar ts funding has been accrued through (None = since entry)
 
     def unrealized_R(self, price: float) -> float:
         risk_per_unit = abs(self.entry_price - self.init_stop)
@@ -89,8 +91,10 @@ class ClosedTrade:
     exit_price: float
     size: float
     pnl: float              # net $ after costs
-    R: float                # realized R-multiple (net)
+    R: float                # realized R-multiple (net, i.e. after costs AND funding)
     exit_reason: str
+    funding: float = 0.0    # $ funding paid over the life of the trade (negative = received);
+                            # already included in pnl and R, stored separately for reporting
 
 
 @dataclass

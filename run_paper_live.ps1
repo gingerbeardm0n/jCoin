@@ -8,6 +8,6 @@ $env:PYTHONIOENCODING = "utf-8"
 $repo = "C:\Repositories\jCoin"
 Set-Location $repo
 New-Item -ItemType Directory -Force -Path "$repo\paper_state" | Out-Null
-& "C:\Python310\python.exe" -m jcoin.live.run_paper --mode live --max-dd-pct 0.40 2>&1 |
+& "C:\Python310\python.exe" -m jcoin.live.run_paper --mode live --max-dd-pct 0.398 2>&1 |
     Out-File -Append -Encoding utf8 "$repo\paper_state\scheduler.log"
 exit $LASTEXITCODE

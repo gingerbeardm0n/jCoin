@@ -26,7 +26,7 @@ import polars as pl
 
 from jcoin.data.config import LIVE_MARKETS, Market, market_by_label
 from jcoin.data.feed import DataFeed
-from jcoin.data.live_source import get_recent_candles_cached
+from jcoin.data.live_source import _timeframe_to_ms, get_recent_candles_cached
 from jcoin.engine.broker import PaperBroker
 from jcoin.engine.engine import TradingEngine
 from jcoin.engine.features import compute_features
@@ -34,6 +34,8 @@ from jcoin.engine.kill_switch import HaltLevel, KillSwitch, KillSwitchConfig
 from jcoin.engine.risk import RiskConfig, can_open
 from jcoin.engine.strategy import BreakoutStrategy, StrategyConfig
 from jcoin.engine.types import ClosedTrade, Position, Side
+from jcoin.live import killswitch_latch
+from jcoin.live.funding import funding_cost
 from jcoin.strategy.cycle import CYCLE_BEAR, CYCLE_UNKNOWN, current_phase
 
 _FEAT_COLS = ["symbol", "ts", "open", "high", "low", "close", "volume",
@@ -45,7 +47,7 @@ class PaperTrader:
                  strat=StrategyConfig(), risk=RiskConfig(), ks=KillSwitchConfig(),
                  cost_frac=0.0012, start_equity=10_000.0,
                  state_dir="paper_state", live_markets=None, broker=None,
-                 allow_stale_entries: bool = True):
+                 allow_stale_entries: bool = True, funding=None):
         self.labels = list(labels)
         self.tf = tf
         self.engine = TradingEngine(BreakoutStrategy(strat),
@@ -61,6 +63,12 @@ class PaperTrader:
         # run_kraken.py) pass False so they only ever manage/exit stale positions and
         # never OPEN a real position off a stale bar (audit 2026-09-18, item #2).
         self.allow_stale_entries = allow_stale_entries
+        # Perp funding accrual (paper only). `funding` is a rate source (see
+        # live/funding.py: hourly_rate(label, hour_start), begin_run(since)); None = off,
+        # which is what replay, tests and KrakenTrader use (the real exchange settles
+        # funding into the balance KrakenTrader syncs, so accruing here would double count).
+        self.funding = funding
+        self.funding_missing_bars = 0   # bars where an open position's funding was unknowable
 
         self._cycle_phase: str = CYCLE_UNKNOWN  # updated each live bar from BTC history
         self._base_risk = risk                  # original config; bear phase scales it down
@@ -96,12 +104,15 @@ class PaperTrader:
         else:
             self.engine.risk = self._base_risk
 
+        self._accrue_funding(ts, rows)   # before the kill switch so it judges net equity
+
         decision = self.ks.evaluate(ts, acct.equity)
         if decision.level is HaltLevel.HARD:
             if acct.open_count:
                 self.log.warning("HARD HALT (%s) -> flatten all", decision.reason)
                 self.engine.flatten_all(ts, rows, f"killswitch:{decision.reason}")
             self.engine.entries_enabled = False
+            self._latch_hard_halt(decision.reason)
         else:
             self.engine.entries_enabled = decision.level is not HaltLevel.SOFT
             if decision.level is HaltLevel.SOFT:
@@ -110,10 +121,17 @@ class PaperTrader:
         n_closed_before = len(acct.closed)
         self.engine.step(ts, rows, allow_entries=allow_entries, entry_symbols=entry_symbols)
 
-        for tr in acct.closed[n_closed_before:]:
-            self.ks.on_trade_closed(tr.pnl)
-            self.log.info("EXIT  %s %s @ %.2f  pnl=%.2f R=%.2f (%s)",
-                          tr.symbol, tr.side.value, tr.exit_price, tr.pnl, tr.R, tr.exit_reason)
+        self._record_closed(n_closed_before)
+        if self.ks.state.hard_halted and decision.level is not HaltLevel.HARD:
+            # A trade closed in this step tripped a hard rule (losing streak): flatten NOW
+            # rather than carrying open risk until the next bar's evaluate().
+            if acct.open_count:
+                self.log.warning("HARD HALT (%s) -> flatten all", self.ks.state.halt_reason)
+                n_before = len(acct.closed)
+                self.engine.flatten_all(ts, rows, f"killswitch:{self.ks.state.halt_reason}")
+                self._record_closed(n_before)
+            self.engine.entries_enabled = False
+            self._latch_hard_halt(self.ks.state.halt_reason)
         for sym, pos in acct.positions.items():
             if pos.entry_time == ts:
                 self.log.info("ENTER %s %s @ %.2f  size=%.5f stop=%.2f",
@@ -128,6 +146,60 @@ class PaperTrader:
             self._save()
         self.log.info("bar %s | equity=%.2f open=%d trades=%d",
                       ts.isoformat(), acct.equity, acct.open_count, len(acct.closed))
+
+    def _record_closed(self, n_before: int) -> None:
+        """Feed trades closed since index n_before to the kill switch and log them."""
+        for tr in self.engine.account.closed[n_before:]:
+            self.ks.on_trade_closed(tr.pnl, tr.R)
+            self.log.info("EXIT  %s %s @ %.2f  pnl=%.2f R=%.2f funding=%.2f (%s)",
+                          tr.symbol, tr.side.value, tr.exit_price, tr.pnl, tr.R, tr.funding,
+                          tr.exit_reason)
+
+    def _latch_hard_halt(self, reason: str) -> None:
+        """Write the human-reset latch for a kill-switch hard halt (live/persisting runs only)."""
+        if self.persist and killswitch_latch.write_latch(self.dir, reason):
+            self.log.error("KILL-SWITCH HARD HALT LATCHED (%s): %s", killswitch_latch.latch_path(self.dir), reason)
+
+    # -- funding -------------------------------------------------------------
+    def _accrue_funding(self, ts: dt.datetime, rows: dict[str, dict]) -> None:
+        """Charge perp funding on every open position for the time since it was last accrued.
+
+        funding = side.sign * rate_per_hour * hours * notional (mark = this bar's close);
+        longs pay positive rates, shorts receive. Deducted from equity immediately and
+        summed in Position.funding (the engine puts it into ClosedTrade.pnl/R/funding at
+        close without charging equity twice). Bar timestamps are bar OPEN times and the
+        strategy acts at bar close, so the window held during the bar processed at `ts`
+        is (prev_ts + tf, ts + tf]. A position's window starts at its last accrual
+        (or its entry bar). If any rate in the window is unavailable we log a WARNING,
+        charge 0 for it and count funding_missing_bars once for the bar; never a guess."""
+        acct = self.engine.account
+        if self.funding is None or not acct.positions:
+            return
+        tf = dt.timedelta(milliseconds=_timeframe_to_ms(self.tf))
+        missing = False
+        for sym, pos in acct.positions.items():
+            row = rows.get(sym)
+            if row is None:
+                continue  # no bar for this symbol now; the next accrual covers the longer window
+            start = pos.funding_ts or pos.entry_time
+            if ts <= start:
+                continue
+            cost, complete = funding_cost(self.funding, sym, pos.side,
+                                          pos.size * row["close"], start + tf, ts + tf)
+            if not complete:
+                missing = True
+                self.log.warning("FUNDING UNAVAILABLE for %s %s -> %s: charging 0 for this window",
+                                 sym, start.isoformat(), ts.isoformat())
+                cost = 0.0
+            pos.funding_ts = ts
+            if cost:
+                pos.funding += cost
+                acct.equity -= cost
+                self.log.info("FUNDING %s %s %.2fh notional=%.2f -> %+.4f (total %+.4f)",
+                              sym, pos.side.value, (ts - start).total_seconds() / 3600,
+                              pos.size * row["close"], -cost, -pos.funding)
+        if missing:
+            self.funding_missing_bars += 1
 
     # -- cycle filter --------------------------------------------------------
     def _refresh_cycle_phase(self, feats: dict) -> None:
@@ -231,6 +303,13 @@ class PaperTrader:
             self.log.info("CATCH-UP: %d missed bar(s) to process (%s -> %s)",
                           len(all_new_ts), all_new_ts[0], all_new_ts[-1])
 
+        if self.funding is not None:
+            # Funding history is fetched lazily (once per symbol) from the oldest window
+            # any open position could need: its last accrual, else the last processed bar.
+            self.funding.begin_run(min([p.funding_ts or p.entry_time
+                                        for p in self.engine.account.positions.values()]
+                                       + [self.last_ts or all_new_ts[0]]))
+
         processed_any = False
         for ts in all_new_ts:
             rows = {}
@@ -295,7 +374,13 @@ class PaperTrader:
         self._save()
 
     def reset_equity(self, new_equity: float) -> None:
-        """Reset account to new_equity, drop open positions, keep closed trade history."""
+        """Reset account to new_equity, drop open positions, keep closed trade history.
+
+        Also clears a kill-switch hard halt (new clock), which is why it refuses while the
+        human-reset latch file exists: delete KILLSWITCH_HALT.latch first (see KILL_RULE.md)."""
+        if killswitch_latch.latch_path(self.dir).exists():
+            raise RuntimeError(f"refusing to reset equity: kill-switch latch {killswitch_latch.latch_path(self.dir)} "
+                               f"exists. A human must review and delete it first (KILL_RULE.md).")
         acct = self.engine.account
         self.log.warning(
             "EQUITY RESET: %.2f -> %.2f | dropping %d open position(s)",
@@ -324,6 +409,7 @@ class PaperTrader:
             "closed": [self._trade_d(t) for t in acct.closed],
             "equity_curve": [[t.isoformat(), e] for t, e in acct.equity_curve],
             "killswitch": self._ks_d(),
+            "funding_missing_bars": self.funding_missing_bars,
         }
         tmp = self.state_path.with_suffix(".tmp")
         tmp.write_text(json.dumps(st, indent=2))
@@ -339,6 +425,18 @@ class PaperTrader:
         acct.closed = [self._trade_from(t) for t in st["closed"]]
         acct.equity_curve = [(dt.datetime.fromisoformat(t), e) for t, e in st["equity_curve"]]
         self._ks_from(st["killswitch"])
+        self.funding_missing_bars = st.get("funding_missing_bars", 0)
+        if "nonwin_streak" not in st["killswitch"]:
+            # State written before the losing-streak rule existed: rebuild the streak from
+            # the trades since the clock start (first equity-curve point, as run_paper's
+            # SUMMARY does) so a bad run in progress is not forgotten at deploy time.
+            since = acct.equity_curve[0][0] if acct.equity_curve else None
+            n = 0
+            for t in reversed([t for t in acct.closed if since is None or t.entry_time >= since]):
+                if t.R > 0:
+                    break
+                n += 1
+            self.ks.state.nonwin_streak = n
 
     @staticmethod
     def _pos_d(p: Position) -> dict:
@@ -346,27 +444,32 @@ class PaperTrader:
                 "entry_price": p.entry_price, "size": p.size, "risk_dollars": p.risk_dollars,
                 "atr": p.atr, "init_stop": p.init_stop, "trail_stop": p.trail_stop,
                 "extreme": p.extreme, "entry_cost": p.entry_cost,
-                "stop_order_id": p.stop_order_id, "stop_order_price": p.stop_order_price}
+                "stop_order_id": p.stop_order_id, "stop_order_price": p.stop_order_price,
+                "funding": p.funding,
+                "funding_ts": p.funding_ts.isoformat() if p.funding_ts else None}
 
     @staticmethod
     def _pos_from(d: dict) -> Position:
         return Position(d["symbol"], Side(d["side"]), dt.datetime.fromisoformat(d["entry_time"]),
                         d["entry_price"], d["size"], d["risk_dollars"], d["atr"],
                         d["init_stop"], d["trail_stop"], d["extreme"], d["entry_cost"],
-                        d.get("stop_order_id"), d.get("stop_order_price"))
+                        d.get("stop_order_id"), d.get("stop_order_price"),
+                        d.get("funding", 0.0),
+                        dt.datetime.fromisoformat(d["funding_ts"]) if d.get("funding_ts") else None)
 
     @staticmethod
     def _trade_d(t: ClosedTrade) -> dict:
         return {"symbol": t.symbol, "side": t.side.value, "entry_time": t.entry_time.isoformat(),
                 "exit_time": t.exit_time.isoformat(), "entry_price": t.entry_price,
                 "exit_price": t.exit_price, "size": t.size, "pnl": t.pnl, "R": t.R,
-                "exit_reason": t.exit_reason}
+                "exit_reason": t.exit_reason, "funding": t.funding}
 
     @staticmethod
     def _trade_from(d: dict) -> ClosedTrade:
         return ClosedTrade(d["symbol"], Side(d["side"]), dt.datetime.fromisoformat(d["entry_time"]),
                            dt.datetime.fromisoformat(d["exit_time"]), d["entry_price"],
-                           d["exit_price"], d["size"], d["pnl"], d["R"], d["exit_reason"])
+                           d["exit_price"], d["size"], d["pnl"], d["R"], d["exit_reason"],
+                           d.get("funding", 0.0))
 
     def _ks_d(self) -> dict:
         s = self.ks.state
@@ -374,7 +477,8 @@ class PaperTrader:
                 "day_start_equity": s.day_start_equity, "loss_streak": s.loss_streak,
                 "cooldown_left": s.cooldown_left,
                 "halted_until_day": s.halted_until_day.isoformat() if s.halted_until_day else None,
-                "hard_halted": s.hard_halted}
+                "hard_halted": s.hard_halted, "nonwin_streak": s.nonwin_streak,
+                "halt_reason": s.halt_reason}
 
     def _ks_from(self, d: dict) -> None:
         s = self.ks.state
@@ -385,6 +489,8 @@ class PaperTrader:
         s.cooldown_left = d.get("cooldown_left", 0)
         s.halted_until_day = dt.date.fromisoformat(d["halted_until_day"]) if d["halted_until_day"] else None
         s.hard_halted = d["hard_halted"]
+        s.nonwin_streak = d.get("nonwin_streak", 0)
+        s.halt_reason = d.get("halt_reason", "")
 
     def _init_log(self) -> None:
         self.log = logging.getLogger(f"jcoin.paper.{id(self)}")

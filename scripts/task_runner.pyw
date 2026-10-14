@@ -14,7 +14,7 @@ REPO = r"C:\Repositories\jCoin"
 PYTHON = r"C:\Python310\python.exe"
 
 JOBS = {
-    "paper": (["-m", "jcoin.live.run_paper", "--mode", "live", "--max-dd-pct", "0.40"],
+    "paper": (["-m", "jcoin.live.run_paper", "--mode", "live", "--max-dd-pct", "0.398"],
               os.path.join(REPO, "paper_state", "scheduler.log")),
     "watchdog": (["-m", "jcoin.live.watchdog"],
                  os.path.join(REPO, "paper_state", "watchdog.log")),

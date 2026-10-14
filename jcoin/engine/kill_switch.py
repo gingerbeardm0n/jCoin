@@ -9,6 +9,7 @@ Switches:
   - max account drawdown:  equity down >= max_dd_pct from all-time peak -> hard halt (manual review)
   - consecutive losses:    N losing trades in a row -> cool-down halt
   - equity floor:          equity below an absolute floor -> hard halt
+  - losing streak:         more than N closed trades in a row with R <= 0 -> hard halt (0 = off)
 
 This module decides; wiring into the live runner (flatten-all, disable, alert) is the
 runner's job. Kept OUT of the backtest parity path by default (attach explicitly).
@@ -36,6 +37,10 @@ class KillSwitchConfig:
                                         # of return over 5.5y). 0 = off. Set >0 to re-enable.
     cooldown_bars: int = 12             # bars to pause after a consecutive-loss trip (if on)
     equity_floor: float = 0.0           # absolute $ floor -> hard halt (0 disables)
+    max_losing_streak: int = 0          # HARD halt when MORE than this many consecutive closed
+                                        # trades have R <= 0 (33 -> the 34th trips). 0 = off.
+                                        # Unlike `consecutive_losses` above this never auto-resumes.
+                                        # See KILL_RULE.md.
 
 
 @dataclass
@@ -47,6 +52,8 @@ class KillSwitchState:
     cooldown_left: int = 0
     halted_until_day: dt.date | None = None
     hard_halted: bool = False
+    nonwin_streak: int = 0              # consecutive closed trades with R <= 0 (reset by R > 0)
+    halt_reason: str = ""               # why hard_halted was set (kept so a restart still shows it)
 
 
 @dataclass(frozen=True)
@@ -66,8 +73,18 @@ class KillSwitch:
     def reset(self, start_equity: float) -> None:
         self.state = KillSwitchState(peak_equity=start_equity, day_start_equity=start_equity)
 
-    def on_trade_closed(self, pnl: float) -> None:
-        self.state.loss_streak = self.state.loss_streak + 1 if pnl <= 0 else 0
+    def on_trade_closed(self, pnl: float, R: float | None = None) -> None:
+        """Record a closed trade. `R` is the net R-multiple; when omitted, pnl's sign is used.
+        The hard losing-streak halt is latched HERE (not only in evaluate()) so the runner
+        can flatten right after the trade that tripped it instead of one bar later."""
+        st = self.state
+        st.loss_streak = st.loss_streak + 1 if pnl <= 0 else 0
+        r = pnl if R is None else R
+        st.nonwin_streak = st.nonwin_streak + 1 if r <= 0 else 0
+        mx = self.cfg.max_losing_streak
+        if mx > 0 and st.nonwin_streak > mx and not st.hard_halted:
+            st.hard_halted = True
+            st.halt_reason = f"losing streak {st.nonwin_streak} > {mx} consecutive trades with R <= 0"
 
     def evaluate(self, ts: dt.datetime, equity: float) -> HaltDecision:
         st = self.state
@@ -79,16 +96,18 @@ class KillSwitch:
         st.peak_equity = max(st.peak_equity, equity)
 
         if st.hard_halted:
-            return HaltDecision(HaltLevel.HARD, "hard halt latched")
+            return HaltDecision(HaltLevel.HARD, st.halt_reason or "hard halt latched")
 
         # hard switches
         if self.cfg.equity_floor > 0 and equity <= self.cfg.equity_floor:
             st.hard_halted = True
-            return HaltDecision(HaltLevel.HARD, f"equity floor {self.cfg.equity_floor} breached")
+            st.halt_reason = f"equity floor {self.cfg.equity_floor} breached"
+            return HaltDecision(HaltLevel.HARD, st.halt_reason)
         dd = (st.peak_equity - equity) / st.peak_equity if st.peak_equity > 0 else 0.0
         if dd >= self.cfg.max_dd_pct:
             st.hard_halted = True
-            return HaltDecision(HaltLevel.HARD, f"max drawdown {dd:.1%} >= {self.cfg.max_dd_pct:.0%}")
+            st.halt_reason = f"max drawdown {dd:.1%} >= {self.cfg.max_dd_pct:.1%}"
+            return HaltDecision(HaltLevel.HARD, st.halt_reason)
 
         # soft switches
         if st.halted_until_day is not None and d <= st.halted_until_day:
