@@ -22,6 +22,8 @@ Each entry: the takeaway, who said it, and whether it changes anything we do.
 
 | US venues: Kraken US perps (Bitnomial, 8h funding — but we found no retail API), Coinbase nano (hourly funding), or **CME micro futures via a futures broker (no funding; must roll contracts)** | moritz_ka | CME route not yet evaluated — add to venue research |
 
+| Spot long-only is "perfectly fine, might even be the better option" at small size; suggests Hyperliquid via VPN/API later for shorts | iSnake37 (2026-10-14) | Spot part: noted. **Hyperliquid/VPN: rejected** — circumvents US geoblock, against Joel's US-legal/no-VPN rule; risk of frozen funds and legal exposure |
+
 Ignore / be careful: QuanTradin (promoting own site), Appropriate-Talk-735 ("PM me" — don't take trading DMs).
 
 ### The basket question
