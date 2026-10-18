@@ -43,6 +43,7 @@ forward, one row per evaluation.
 | 2026-10-14 | `phase1_honest_a.py`, `basket_trend_backtest.py` | A fixed; B fixed + 2 report-only variants | 2 / ≤30 of 729 | Head-to-head on dev period; decision recorded in `pipeline/HEAD_TO_HEAD_2026-10.md` (A stays) | No |
 | 2026-10-14 | `jcoin/research/sealed_confirmation.py` (`allow_sealed=True`) | A fixed, B fixed main | 2 / ≤30 per rebalance of 895 | Single §5 confirmation look (2026-06-01 → 09-30) | Yes — the one allowed look |
 | 2026-10-18 | (protocol only, no runs) | — | — | A_LO spot long-only pass rule registered in §6 **before** any results | No |
+| 2026-10-18 | `spot_long_only.py` | A_LO fixed; costs 1.00% (decision), 0.50% / 2.60% (report only) | 2 | §6 test on dev data → **FAIL** (PF 1.14, MAR 0.02, 3/6 slices). No sealed look (protocol confirms passes only). | No |
 | — | — | — | — | *(add new rows here going forward)* | — |
 
 ## 3. The gate definition
