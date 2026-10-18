@@ -42,6 +42,7 @@ forward, one row per evaluation.
 | 2026-10-14 | `phase1_honest_a.py` (first baseline run, discarded) | A, fixed config | 2 | Unbounded 1m data let a few trades entered before 06-01 exit after it; numbers discarded, all reported results capped at 2026-05-31 | **Yes (minor leak, discarded)** |
 | 2026-10-14 | `phase1_honest_a.py`, `basket_trend_backtest.py` | A fixed; B fixed + 2 report-only variants | 2 / ≤30 of 729 | Head-to-head on dev period; decision recorded in `pipeline/HEAD_TO_HEAD_2026-10.md` (A stays) | No |
 | 2026-10-14 | `jcoin/research/sealed_confirmation.py` (`allow_sealed=True`) | A fixed, B fixed main | 2 / ≤30 per rebalance of 895 | Single §5 confirmation look (2026-06-01 → 09-30) | Yes — the one allowed look |
+| 2026-10-18 | (protocol only, no runs) | — | — | A_LO spot long-only pass rule registered in §6 **before** any results | No |
 | — | — | — | — | *(add new rows here going forward)* | — |
 
 ## 3. The gate definition
@@ -99,3 +100,30 @@ own worst dev-slice drawdown, **stop and reassess** with Joel before paper-tradi
 
 **Disclosure:** A's behaviour on 2026-06-01 → 2026-09-18 was already seen once (2026-09-18 audit
 replay, logged above), so A's sealed look is not fully blind; B's is.
+
+## 6. Spot long-only test: A_LO (registered 2026-10-18, before any results)
+
+Motivation: r/algotradingcrypto (iSnake37) — "spot long-only is perfectly fine, might even be the
+better option" at small size. A spot version could trade today via a US-legal spot API (Kraken),
+with no futures venue, no funding, no leverage.
+
+**Contestant A_LO:** strategy A's exact signals and config (BTC+ETH, 4h breakout, ATR init 1.0 /
+trail 6.0, max_hold 120, 1% risk, max 1 per symbol / 2 concurrent), **long trades only** — when A
+would short, A_LO stays flat. No funding. **Cost: 1.00% round trip** (Kraken spot taker 0.40% +
+0.10% slippage, per side). Report-only cost variants: 0.50% round trip (maker-ish) and 2.60% round
+trip (Coinbase Advanced lowest-tier taker 1.20% + 0.10% slippage per side). Never used to decide.
+
+**Data:** dev period 2021-01-01 → 2026-05-31 via `splits.py`, same slices as §5. Binance perp
+prices as a spot proxy (same as §5).
+
+**Pass rule (all three, on dev data at 1.00% cost):**
+1. Profit factor ≥ 1.20 over the full dev period.
+2. Full-dev MAR > BTC buy-and-hold MAR over the same period (0.24 from §5), and > 0.
+3. Positive return in at least 4 of the 6 slices.
+
+**Sealed confirmation (one look, 2026-06-01 → 2026-09-30, logged):** confirms only. If A_LO's
+sealed drawdown exceeds its own worst dev-slice drawdown → stop and reassess with Joel.
+
+If A_LO passes, the next step is a Kraken spot broker adapter + paper run; A (futures) keeps
+running in paper in parallel. If it fails, A stays the only candidate and the venue question
+(Coinbase nano vs CME micros) remains open.
