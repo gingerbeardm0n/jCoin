@@ -83,14 +83,23 @@ def funding_to_R(funding_ret, stop_dist):
 
 
 def build_trades(tf, labels, atr_period, atr_init, atr_trail, max_hold, cost_frac,
-                 funding_mult=0.0, funding_dir=FUNDING_DIR, end=None):
+                 funding_mult=0.0, funding_dir=FUNDING_DIR, end=None,
+                 stop_mode="intrabar", disaster_atr=2.0):
     """Per symbol: produce closed trades with entry/exit times + R outcome (net of cost).
 
     funding_mult scales Binance perp funding (0 = ignore funding, the original
     behaviour; 1 = historical; 2 = double). `end` truncates candles (inclusive bound on
     candle open time) so research can stay out of the sealed window.
     Each trade also carries `funding_R` (already scaled by funding_mult, + = received).
+
+    stop_mode="intrabar" (default, original): exit at the stop when a bar's low/high
+    touches it; trail from highs/lows. stop_mode="close" (VALIDATION_RULES.md §7, A_CS):
+    the stop triggers only when a bar CLOSES beyond it (exit at that close), the trail
+    follows closes, and a disaster stop `disaster_atr` ATR beyond the stop exits
+    intrabar at that level (the order that would rest on the exchange).
     """
+    if stop_mode not in ("intrabar", "close"):
+        raise ValueError(f"unknown stop_mode {stop_mode!r}")
     feed = DataFeed()
     trades = []
     for label in labels:
@@ -101,6 +110,7 @@ def build_trades(tf, labels, atr_period, atr_init, atr_trail, max_hold, cost_fra
         high = df2["high"].to_numpy()
         low = df2["low"].to_numpy()
         close = df2["close"].to_numpy()
+        open_ = df2["open"].to_numpy()  # gap fills for the close-mode disaster stop
         ts = df2["ts"].to_list()
         atr = _atr(df2, atr_period)
         n = len(close)
@@ -119,10 +129,31 @@ def build_trades(tf, labels, atr_period, atr_init, atr_trail, max_hold, cost_fra
             stop_dist = abs(entry - stop) / entry
             if stop_dist <= 0:
                 continue
-            best = high[i] if long else low[i]
+            best = (high[i] if long else low[i]) if stop_mode == "intrabar" else entry
             exit_price = None
             exit_idx = min(i + max_hold, n - 1)
             for j in range(i + 1, min(i + 1 + max_hold, n)):
+                if stop_mode == "close":
+                    disaster = stop - disaster_atr * a if long else stop + disaster_atr * a
+                    if long:
+                        if low[j] <= disaster:
+                            exit_price, exit_idx = min(disaster, open_[j]), j
+                            break
+                        if close[j] <= stop:
+                            exit_price, exit_idx = close[j], j
+                            break
+                        best = max(best, close[j])
+                        stop = max(stop, best - atr_trail * a)
+                    else:
+                        if high[j] >= disaster:
+                            exit_price, exit_idx = max(disaster, open_[j]), j
+                            break
+                        if close[j] >= stop:
+                            exit_price, exit_idx = close[j], j
+                            break
+                        best = min(best, close[j])
+                        stop = min(stop, best + atr_trail * a)
+                    continue
                 if long:
                     if low[j] <= stop:
                         exit_price, exit_idx = stop, j

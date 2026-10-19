@@ -46,6 +46,7 @@ forward, one row per evaluation.
 | 2026-10-18 | `spot_long_only.py` | A_LO fixed; costs 1.00% (decision), 0.50% / 2.60% (report only) | 2 | §6 test on dev data → **FAIL** (PF 1.14, MAR 0.02, 3/6 slices). No sealed look (protocol confirms passes only). | No |
 | 2026-10-19 | `noise_robustness.py`, Coinbase parity diagnostics | A fixed | 2 | Diagnostics only (noise, spikes); no selection | No |
 | 2026-10-19 | (protocol only, no runs) | — | — | A_CS close-based stop rule registered in §7 **before** any results | No |
+| 2026-10-19 | `close_stop_test.py` | A vs A_CS (fixed) | 2 | §7 test → **KEEP A** (dev MAR 0.85 < 1.11 threshold; Coinbase PF 0.98 vs 0.59 improved but not enough) | No |
 | — | — | — | — | *(add new rows here going forward)* | — |
 
 ## 3. The gate definition
