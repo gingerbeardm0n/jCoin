@@ -39,3 +39,19 @@ Run 2026-10-18. Overlap ends 2026-05-31 (dev window only).
 - Meaning: A's results depend on a few large winners, and catching them is sensitive to exact highs/lows.
   The edge may not transfer to Coinbase's own price series. **Do not go live on Coinbase until this is
   understood** (next: compare wick sizes; re-run with stop/trailing evaluated on closes; check longer history).
+
+## Diagnosis (2026-10-19)
+
+1. **Not general wickiness.** Median 4h range: BTC 1.11% Coinbase vs 1.08% Binance; ETH 1.64% vs 1.64%.
+2. **Not fragility to small noise in general.** `noise_robustness.py` (200 runs, N(0, 0.075%) on every price,
+   full dev window): all runs profitable, PF p5–p95 1.44–1.73 (baseline 1.65 sits ~p70 → fairer CAGR ≈ 31%,
+   not 35.6%). See `NOISE_ROBUSTNESS_2026-10.md`.
+3. **Worse than noise explains.** Over the same 10-month window, only 0.5% of noisy Binance runs lost as much as
+   Coinbase (−24.2%); noise-only PF p5–p95 0.86–1.49.
+4. **Cause: rare extreme Coinbase spikes** (thin nano order book). Highs/lows beyond Binance by >1%: BTC 13/8,
+   ETH 11/12 bars in 1,780; >2%: BTC 4/3, ETH 3/2. Example during the BTC 01-16 short: 01-31 16:00 high 84,500
+   vs 82,200 (+2.8%), 02-08 08:00 +2.4% → trailing stop hit early, +24.1R became +3.7R.
+   One 12h data gap (2025-10-25, maintenance).
+5. **This is real execution risk,** not bad data: a resting stop on Coinbase would trigger on these prints.
+   Candidate mitigation: evaluate stops on 4h **closes** + a wide resting "disaster" stop. Must be pre-registered
+   and tested (VALIDATION_RULES.md §7) before any change.
