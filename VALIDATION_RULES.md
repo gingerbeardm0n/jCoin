@@ -44,6 +44,8 @@ forward, one row per evaluation.
 | 2026-10-14 | `jcoin/research/sealed_confirmation.py` (`allow_sealed=True`) | A fixed, B fixed main | 2 / ≤30 per rebalance of 895 | Single §5 confirmation look (2026-06-01 → 09-30) | Yes — the one allowed look |
 | 2026-10-18 | (protocol only, no runs) | — | — | A_LO spot long-only pass rule registered in §6 **before** any results | No |
 | 2026-10-18 | `spot_long_only.py` | A_LO fixed; costs 1.00% (decision), 0.50% / 2.60% (report only) | 2 | §6 test on dev data → **FAIL** (PF 1.14, MAR 0.02, 3/6 slices). No sealed look (protocol confirms passes only). | No |
+| 2026-10-19 | `noise_robustness.py`, Coinbase parity diagnostics | A fixed | 2 | Diagnostics only (noise, spikes); no selection | No |
+| 2026-10-19 | (protocol only, no runs) | — | — | A_CS close-based stop rule registered in §7 **before** any results | No |
 | — | — | — | — | *(add new rows here going forward)* | — |
 
 ## 3. The gate definition
@@ -128,3 +130,24 @@ sealed drawdown exceeds its own worst dev-slice drawdown → stop and reassess w
 If A_LO passes, the next step is a Kraken spot broker adapter + paper run; A (futures) keeps
 running in paper in parallel. If it fails, A stays the only candidate and the venue question
 (Coinbase nano vs CME micros) remains open.
+
+## 7. Close-based stops: A_CS (registered 2026-10-19, before any results)
+
+Motivation: Coinbase nano futures print rare extreme spikes (>1% beyond Binance ~2×/month per coin) that hit
+A's intrabar stops early (`pipeline/COINBASE_PARITY_2026-10.md`). A live resting stop would trigger on them too.
+
+**Contestant A_CS:** strategy A unchanged except stop handling:
+- The protective/trailing stop triggers only when a 4h bar **closes** beyond it; exit at that bar's **close**
+  (not the stop price — realistic, usually worse).
+- Trailing "best" price is tracked on **closes** (not highs/lows).
+- **Disaster stop:** if a bar's high/low trades **2.0 ATR beyond** the current stop, exit at that disaster level
+  intrabar (this is the order that would rest on the exchange). 2.0 is fixed, not tuned.
+- Costs/funding as §5 decision row (12bp + 1× Binance funding on dev).
+
+**Adopt A_CS for live/paper only if BOTH:**
+1. Binance dev period (2021-01-01 → 2026-05-31): A_CS full-period Sharpe ≥ 0.90 × A's **and** MAR ≥ 0.90 × A's
+   (i.e. not materially worse on the data A was validated on).
+2. Coinbase prices, 2025-08-08 → 2026-05-31 (12bp, no funding): A_CS profit factor > A's (0.59).
+
+Report-only: A_CS on Binance over the same 10-month window. No sealed-window look unless adopted; if adopted,
+one logged confirmation look per §5 rules.
