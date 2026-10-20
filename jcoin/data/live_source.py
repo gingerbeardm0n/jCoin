@@ -14,10 +14,13 @@ from pathlib import Path
 
 import polars as pl
 
+from jcoin.data import coinbase_public
 from jcoin.data.config import Market
 from jcoin.data.fetch import _make_exchange, _verify_symbol
 
 log = logging.getLogger(__name__)
+
+COINBASE_EXCHANGE = "coinbase_cde"   # Market.exchange value routed to coinbase_public (not ccxt)
 
 _TF_UNIT_MS = {"m": 60_000, "h": 3_600_000, "d": 86_400_000}
 
@@ -49,22 +52,28 @@ def get_recent_candles(market: Market, timeframe: str, limit: int = 300,
     from `limit` bars back from now. Used by get_recent_candles_cached() to fetch only
     the bars newer than what is already cached (audit 2026-09-18, item #3).
     """
-    ex = _make_exchange(market.exchange)
-    _verify_symbol(ex, market.symbol)
     tf_ms = _timeframe_to_ms(timeframe)
-    since = since_ms if since_ms is not None else int(time.time() * 1000) - limit * tf_ms
     rows: list = []
-    while len(rows) < limit:
-        batch = ex.fetch_ohlcv(market.symbol, timeframe, since=since, limit=limit - len(rows))
-        if not batch:
-            break
-        batch = [b for b in batch if not rows or b[0] > rows[-1][0]]  # drop pagination overlap
-        if not batch:
-            break
-        rows.extend(batch)
-        since = batch[-1][0] + 1
-        if len(batch) < 2:  # exchange returning almost nothing new -> history exhausted
-            break
+    if market.exchange == COINBASE_EXCHANGE:
+        # Coinbase US nano perps: public REST (not ccxt). Same row shape as ccxt, includes
+        # the forming bar; it is dropped below like on every other venue. If the product
+        # has fewer bars than requested, coinbase_public returns what exists (INFO log).
+        rows = coinbase_public.fetch_candles(market.symbol, timeframe, since_ms=since_ms, limit=limit)
+    else:
+        ex = _make_exchange(market.exchange)
+        _verify_symbol(ex, market.symbol)
+        since = since_ms if since_ms is not None else int(time.time() * 1000) - limit * tf_ms
+        while len(rows) < limit:
+            batch = ex.fetch_ohlcv(market.symbol, timeframe, since=since, limit=limit - len(rows))
+            if not batch:
+                break
+            batch = [b for b in batch if not rows or b[0] > rows[-1][0]]  # drop pagination overlap
+            if not batch:
+                break
+            rows.extend(batch)
+            since = batch[-1][0] + 1
+            if len(batch) < 2:  # exchange returning almost nothing new -> history exhausted
+                break
     if not rows:
         return pl.DataFrame(schema={c: pl.Float64 for c in
                                     ["ts", "open", "high", "low", "close", "volume"]})
@@ -87,11 +96,16 @@ def get_recent_candles(market: Market, timeframe: str, limit: int = 300,
     )
 
 
+def cache_filename(market: Market, timeframe: str) -> str:
+    """On-disk candle cache name; includes the exchange so venues never share a cache."""
+    return f"{market.exchange}_{market.label}_{timeframe}.parquet"
+
+
 def get_recent_candles_cached(market: Market, timeframe: str, cache_dir: str | Path,
                                limit: int = 300, catchup_limit: int = 1000,
                                retry_waits_s: tuple[int, ...] = (20, 40)) -> pl.DataFrame:
-    """Like get_recent_candles(), but caches candles on disk per (market.label,
-    timeframe) so a scheduled run only fetches bars newer than what is already
+    """Like get_recent_candles(), but caches candles on disk per (market.exchange,
+    market.label, timeframe) so a scheduled run only fetches bars newer than what is already
     cached instead of re-paginating the full `limit`-bar history every tick.
 
     Audit 2026-09-18, item #3: the cycle filter's ~2300-bar paginated fetch (needed
@@ -105,7 +119,9 @@ def get_recent_candles_cached(market: Market, timeframe: str, cache_dir: str | P
     """
     cache_dir = Path(cache_dir)
     cache_dir.mkdir(parents=True, exist_ok=True)
-    path = cache_dir / f"{market.label}_{timeframe}.parquet"
+    # Exchange in the name so a Kraken and a Coinbase cache for the same label never mix
+    # (pre-2026-10-19 label-only files are simply ignored).
+    path = cache_dir / cache_filename(market, timeframe)
 
     cached = None
     if path.exists():

@@ -71,7 +71,8 @@ DEFAULT_MARKETS: list[Market] = [
     Market(label="NEAR", exchange="binanceusdm", symbol="NEARUSDT"),
 ]
 
-# Live-venue markets for paper/live (sourced via ccxt).
+# Kraken Futures markets (sourced via ccxt). Used by run_kraken.py and by
+# `run_paper --venue kraken`; paper trading now DEFAULTS to COINBASE_MARKETS below.
 # CORRECTION (audit 2026-09-18): this comment used to call krakenfutures "US-legal" --
 # that is WRONG. Kraken Futures (futures.kraken.com) does NOT accept US residents for
 # real order placement; it has only ever been safe to use here as a market-data source
@@ -98,6 +99,21 @@ LIVE_MARKETS: list[Market] = [
     Market(label="AVAX", exchange="krakenfutures", symbol="AVAX/USD:USD"),
     Market(label="HBAR", exchange="krakenfutures", symbol="HBAR/USD:USD"),
 ]
+
+# Coinbase US nano perpetual-style futures (the chosen live venue, see
+# pipeline/VENUE_DECISION_2026-10.md). exchange="coinbase_cde" is NOT a ccxt id:
+# live_source routes it to jcoin/data/coinbase_public.py (public REST, no keys) and
+# `symbol` is the Coinbase product id. Paper trading (run_paper --venue coinbase, the
+# default) uses these for market data, funding and contract sizes.
+COINBASE_MARKETS: list[Market] = [
+    Market(label="BTC", exchange="coinbase_cde", symbol="BIP-20DEC30-CDE"),
+    Market(label="ETH", exchange="coinbase_cde", symbol="ETP-20DEC30-CDE"),
+]
+
+# Base units per contract for the Coinbase nano contracts (verified against the public
+# product endpoint 2026-10-19: contract_size 0.01 BTC / 0.1 ETH). Positions are whole
+# contracts, so paper sizing rounds to multiples of these (RiskConfig.lot_sizes).
+CONTRACT_SIZES: dict[str, float] = {"BTC": 0.01, "ETH": 0.1}
 
 # Default symbol universe for live/paper runners (audit 2026-09-18: the full 9-coin
 # universe above was the DEFAULT for scheduled runs, which multiplied fetch cost and

@@ -16,9 +16,9 @@ from jcoin.data.config import DEFAULT_LIVE_LABELS
 from jcoin.engine.kill_switch import KillSwitchConfig
 from jcoin.engine.risk import RiskConfig
 from jcoin.engine.strategy import StrategyConfig
-from jcoin.data.config import LIVE_MARKETS
+from jcoin.data.config import CONTRACT_SIZES, COINBASE_MARKETS, LIVE_MARKETS
 from jcoin.live.error_breaker import ErrorBreaker
-from jcoin.live.funding import KrakenFundingSource
+from jcoin.live.funding import CoinbaseFundingSource, KrakenFundingSource
 from jcoin.live import killswitch_latch
 from jcoin.live.paper_runner import PaperTrader
 from jcoin.live.ping import ping
@@ -33,6 +33,10 @@ def main(argv=None) -> int:
     p.add_argument("--labels", "--symbols", dest="labels", nargs="+",
                    default=list(DEFAULT_LIVE_LABELS))
     p.add_argument("--tf", default="4h")
+    p.add_argument("--venue", choices=["coinbase", "kraken"], default="coinbase",
+                   help="market-data/funding/contract-size source for LIVE mode: coinbase = "
+                        "Coinbase US nano perps (the chosen live venue; whole-contract "
+                        "sizing), kraken = Kraken Futures data, fractional sizes (old behaviour)")
     p.add_argument("--start", default=None, help="replay start date YYYY-MM-DD")
     p.add_argument("--state-dir", default="paper_state")
     p.add_argument("--start-equity", type=float, default=10_000)
@@ -64,10 +68,19 @@ def main(argv=None) -> int:
 
     # Perp funding accrual is paper-only (live mode); replay runs on stored history
     # with no funding feed, as before.
-    funding = KrakenFundingSource({m.label: m for m in LIVE_MARKETS}) if args.mode == "live" else None
+    # --venue picks the market data, funding source and contract sizes for LIVE mode.
+    # Replay runs on stored (Binance) history, so it never gets whole-contract sizing.
+    if args.venue == "coinbase":
+        markets, funding_cls = COINBASE_MARKETS, CoinbaseFundingSource
+        lots = dict(CONTRACT_SIZES) if args.mode == "live" else None
+        risk = RiskConfig(args.risk_frac, 1, 2, lot_sizes=lots)
+    else:
+        markets, funding_cls = LIVE_MARKETS, KrakenFundingSource
+        risk = RiskConfig(args.risk_frac, 1, 2)
+    funding = funding_cls({m.label: m for m in markets}) if args.mode == "live" else None
     trader = PaperTrader(
         labels=args.labels, tf=args.tf,
-        strat=StrategyConfig(), risk=RiskConfig(args.risk_frac, 1, 2),
+        strat=StrategyConfig(), risk=risk, live_markets=markets,
         ks=KillSwitchConfig(max_dd_pct=args.max_dd_pct,
                             max_losing_streak=args.max_losing_streak),
         start_equity=args.start_equity, state_dir=args.state_dir, funding=funding,
@@ -112,7 +125,7 @@ def main(argv=None) -> int:
     else:
         stats = "win%=n/a | avgR=n/a over 0 trades"
     since_txt = since.date().isoformat() if since else "start"
-    print(f"\nSUMMARY | equity=${a.equity:,.2f} | open={a.open_count} | "
+    print(f"\nSUMMARY | venue={args.venue} | equity=${a.equity:,.2f} | open={a.open_count} | "
           f"closed_trades={len(a.closed)} | {stats} since {since_txt} | "
           f"last_ts={trader.last_ts} | funding_missing_bars={trader.funding_missing_bars}")
     return 0

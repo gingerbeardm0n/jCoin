@@ -90,7 +90,7 @@ def test_cached_fetch_retries_then_raises(tmp_path, monkeypatch):
     mkt = market_by_label("BTC")
     ts = [dt.datetime(2026, 10, 12, h, tzinfo=dt.timezone.utc) for h in (0, 4, 8)]
     pl.DataFrame({"ts": ts, "open": [1.0] * 3, "high": [1.0] * 3, "low": [1.0] * 3,
-                  "close": [1.0] * 3, "volume": [1.0] * 3}).write_parquet(tmp_path / "BTC_4h.parquet")
+                  "close": [1.0] * 3, "volume": [1.0] * 3}).write_parquet(tmp_path / live_source.cache_filename(mkt, "4h"))
 
     calls = []
 
@@ -114,7 +114,7 @@ def test_cached_fetch_recovers_on_retry(tmp_path, monkeypatch):
     mkt = market_by_label("BTC")
     ts = [dt.datetime(2026, 10, 12, h, tzinfo=dt.timezone.utc) for h in (0, 4)]
     base = {"open": [1.0] * 2, "high": [1.0] * 2, "low": [1.0] * 2, "close": [1.0] * 2, "volume": [1.0] * 2}
-    pl.DataFrame({"ts": ts, **base}).write_parquet(tmp_path / "BTC_4h.parquet")
+    pl.DataFrame({"ts": ts, **base}).write_parquet(tmp_path / live_source.cache_filename(mkt, "4h"))
     new = pl.DataFrame({"ts": [dt.datetime(2026, 10, 12, 8, tzinfo=dt.timezone.utc)],
                         "open": [2.0], "high": [2.0], "low": [2.0], "close": [2.0], "volume": [2.0]})
     attempts = iter([ConnectionError("down"), new])

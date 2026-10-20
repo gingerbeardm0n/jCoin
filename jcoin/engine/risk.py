@@ -24,6 +24,13 @@ class RiskConfig:
     # distance could size an enormous, effectively-leveraged position. 1.0 caps a
     # single position's notional at 100% of current equity.
     max_notional_frac: float = 1.0
+    # Whole-contract sizing (paper realism for venues that trade integer contracts, e.g.
+    # Coinbase nano perps: BTC 0.01, ETH 0.1 per contract). symbol -> base units per
+    # contract. None (default) = fractional sizes exactly as before. When set,
+    # size_position() rounds to whole contracts AFTER the notional cap; max_risk_mult
+    # bounds how far the rounded position's stop-out risk may exceed the target risk.
+    lot_sizes: dict[str, float] | None = None
+    max_risk_mult: float = 2.0
 
 
 def can_open(account: Account, symbol: str, cfg: RiskConfig) -> bool:
@@ -54,4 +61,39 @@ def size_position(equity: float, intent: EnterIntent, entry_price: float, cfg: R
             size = max_size
             risk_dollars = size * stop_dist
 
+    lot = cfg.lot_sizes.get(intent.symbol) if cfg.lot_sizes else None
+    if lot:
+        size, risk_dollars = _round_to_lots(equity, intent, entry_price, cfg, lot,
+                                            size, risk_dollars, stop_dist)
+
     return size, risk_dollars
+
+
+def _round_to_lots(equity: float, intent: EnterIntent, entry_price: float, cfg: RiskConfig,
+                   lot: float, size: float, risk_dollars: float, stop_dist: float):
+    """Round `size` to whole contracts of `lot` units. Nearest lot; a size that rounds to
+    zero lots is bumped to one lot only if that lot's risk is within max_risk_mult x the
+    target risk. Skips (returns 0, 0) when the rounded risk is too large, there is no
+    whole lot, or a lot would break the notional cap."""
+    lots = int(size / lot + 0.5)
+    if lots == 0:
+        lots = 1
+    max_risk = cfg.max_risk_mult * risk_dollars
+    if entry_price > 0 and cfg.max_notional_frac > 0:
+        max_lots = int((equity * cfg.max_notional_frac) / (entry_price * lot) + 1e-9)
+        if lots > max_lots:
+            lots = max_lots   # rounding up must not breach the notional cap
+    if lots == 0:
+        log.info("lot rounding skip for %s: no whole %.4g-unit contract fits the notional cap "
+                 "(target size %.6f)", intent.symbol, lot, size)
+        return 0.0, 0.0
+    rounded_risk = lots * lot * stop_dist
+    if rounded_risk > max_risk:
+        log.info("lot rounding skip for %s: %d contract(s) risk %.2f > %.2fx target %.2f "
+                 "(target size %.6f, lot %.4g)", intent.symbol, lots, rounded_risk,
+                 cfg.max_risk_mult, risk_dollars, size, lot)
+        return 0.0, 0.0
+    if lots * lot != size:
+        log.info("lot rounding for %s: %.6f -> %d contract(s) = %.6f units (risk %.2f vs target %.2f)",
+                 intent.symbol, size, lots, lots * lot, rounded_risk, risk_dollars)
+    return lots * lot, rounded_risk

@@ -126,3 +126,47 @@ class KrakenFundingSource:
                          label, hour_start.isoformat(), cur)
             return cur
         return None  # a gap inside the fetched history: unknown, never guessed
+
+
+class CoinbaseFundingSource:
+    """Funding for the Coinbase US nano perps (public product endpoint, no keys).
+
+    Coinbase does not publish retail-downloadable funding HISTORY, so this is an
+    APPROXIMATION: hourly_rate returns the CURRENT published rate for every hour, fetched
+    once per label per run and cached. Units (checked 2026-10-19, see
+    jcoin/data/coinbase_public.py): future_product_details.funding_rate is a fraction of
+    notional per hour (BTC ~5e-6/h), positive = longs pay -- the same convention as
+    KrakenFundingSource. Over a multi-day hold the true hourly rates drift around this
+    value; the error is small next to the stop distance but it is not zero.
+
+    Any fetch failure -> None, so funding_cost() reports the window incomplete, the caller
+    charges 0 and counts funding_missing_bars. A rate is never assumed.
+    `fetch_rate(product_id) -> float` can be injected for tests."""
+
+    def __init__(self, markets: dict[str, Market], fetch_rate=None):
+        self.markets = markets
+        self._fetch_rate = fetch_rate
+        self._current: dict[str, float | None] = {}
+
+    def begin_run(self, since: dt.datetime) -> None:
+        """Start a run: drop the cache so the rate is re-fetched once. `since` is unused
+        (there is no history to fetch) and kept for interface parity with Kraken."""
+        self._current.clear()
+
+    def _load_current(self, label: str) -> float | None:
+        if label not in self._current:
+            try:
+                fetch = self._fetch_rate
+                if fetch is None:
+                    from jcoin.data.coinbase_public import current_funding_rate as fetch
+                self._current[label] = float(fetch(self.markets[label].symbol))
+                log.info("funding %s: using CURRENT Coinbase rate %.3e/h for every hour "
+                         "(no history available)", label, self._current[label])
+            except Exception as e:
+                log.warning("current Coinbase funding rate fetch FAILED for %s: %s", label, e)
+                self._current[label] = None
+        return self._current[label]
+
+    def hourly_rate(self, label: str, hour_start: dt.datetime) -> float | None:
+        """Fraction of notional per hour (the current rate, for any hour), or None."""
+        return self._load_current(label)

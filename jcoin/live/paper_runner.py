@@ -96,6 +96,8 @@ class PaperTrader:
                 risk_frac=self._base_risk.risk_frac * 0.75,
                 max_per_symbol=self._base_risk.max_per_symbol,
                 max_concurrent=self._base_risk.max_concurrent,
+                lot_sizes=self._base_risk.lot_sizes,
+                max_risk_mult=self._base_risk.max_risk_mult,
             )
             if self.engine.risk is not scaled:
                 self.log.info("CYCLE FILTER: bear phase -> risk_frac=%.3f (75%% of base)",
