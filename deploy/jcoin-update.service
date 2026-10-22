@@ -1,0 +1,9 @@
+[Unit]
+Description=jCoin auto-update (pull, test, restart if green)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=jcoin
+ExecStart=/bin/bash /opt/jcoin/deploy/auto-update.sh
