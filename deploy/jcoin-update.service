@@ -1,9 +1,11 @@
 [Unit]
-Description=jCoin auto-update (pull, test, restart if green)
+Description=jCoin auto-update (test in scratch copy, then pull + restart if green)
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=oneshot
 User=jcoin
+EnvironmentFile=-/opt/jcoin/.env
+TimeoutStartSec=900
 ExecStart=/bin/bash /opt/jcoin/deploy/auto-update.sh

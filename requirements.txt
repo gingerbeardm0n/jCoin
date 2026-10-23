@@ -6,9 +6,9 @@ ccxt==4.5.59         # PINNED: reduceOnly/stopPrice/clientOrderId param handling
                      # >=4.0.0 previously let deploys silently drift to an untested ccxt
                      # release; bump deliberately and re-verify, don't just relax this.
 duckdb>=1.0.0        # embedded SQL over parquet (queries, no server)
-polars>=1.0.0        # fast dataframe transforms
+polars>=1.41,<2.1    # bounded: tests verified on 1.41.2 (laptop) and 2.0.0 (VM, 2026-10-23)
 pyarrow>=14.0.0      # parquet read/write engine
-numpy>=1.26.0        # numerical ops (regime filter)
+numpy>=2.2,<2.5      # bounded: verified on 2.2.6 (laptop) and 2.4.6 (VM)
 python-dotenv>=1.0.0 # .env file loading
 fastapi>=0.100.0     # dashboard API
 uvicorn>=0.23.0      # dashboard ASGI server

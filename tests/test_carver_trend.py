@@ -42,7 +42,12 @@ def test_forecast_zero_atr():
 
 def test_daily_breakout_produces_trades():
     """Daily breakout must produce at least some trades over the dev window."""
+    from pathlib import Path
     from jcoin.research.carver_trend import daily_breakout_trades
+
+    data = Path(__file__).resolve().parents[1] / "data" / "ohlcv" / "binanceusdm" / "BTC"
+    if not data.exists():
+        pytest.skip("historical data/ not present (gitignored; e.g. on the VM)")
 
     trades, years = daily_breakout_trades()
     assert len(trades) > 0, "daily breakout produced zero trades"

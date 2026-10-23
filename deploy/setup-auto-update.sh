@@ -1,22 +1,22 @@
 #!/usr/bin/env bash
-# Run this ONCE on the VM as root (or via sudo) to enable auto-updates.
-# After this, the jcoin-update timer runs hourly, pulls from GitHub,
-# runs tests, and restarts the daemon only if tests pass.
+# Run ONCE on the VM as root (re-run after changing any unit file in deploy/):
+#   cd /opt/jcoin && sudo bash deploy/setup-auto-update.sh
+# Installs the hourly auto-update timer and the daily state-backup timer.
 
 set -euo pipefail
 
-# Allow jcoin user to restart the daemon without a password
-echo 'jcoin ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart jcoin' \
-    > /etc/sudoers.d/jcoin-restart
-chmod 0440 /etc/sudoers.d/jcoin-restart
+# Let the jcoin user restart the daemon (exact command only) without a password.
+TMP=$(mktemp)
+echo 'jcoin ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart jcoin' > "$TMP"
+visudo -cf "$TMP"
+install -m 0440 "$TMP" /etc/sudoers.d/jcoin-restart
+rm -f "$TMP"
 
-# Make the script executable
-chmod +x /opt/jcoin/deploy/auto-update.sh
-
-# Install the systemd units
-cp /opt/jcoin/deploy/jcoin-update.service /etc/systemd/system/
-cp /opt/jcoin/deploy/jcoin-update.timer /etc/systemd/system/
+# git does not track the exec bit reliably here; both scripts are run via /bin/bash.
+cp /opt/jcoin/deploy/jcoin-update.service /opt/jcoin/deploy/jcoin-update.timer \
+   /opt/jcoin/deploy/jcoin-backup.service /opt/jcoin/deploy/jcoin-backup.timer \
+   /etc/systemd/system/
 systemctl daemon-reload
-systemctl enable --now jcoin-update.timer
+systemctl enable --now jcoin-update.timer jcoin-backup.timer
 
-echo "Auto-update timer enabled. Check with: systemctl list-timers jcoin-update"
+echo "Timers enabled. Check with: systemctl list-timers 'jcoin-*'"

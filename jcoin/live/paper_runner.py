@@ -38,6 +38,9 @@ from jcoin.live import killswitch_latch
 from jcoin.live.funding import funding_cost
 from jcoin.strategy.cycle import CYCLE_BEAR, CYCLE_UNKNOWN, current_phase
 
+# Bars are stamped at OPEN time, so the newest closed 4h bar is normally <8h old.
+STALE_FEED_HOURS = 9.0
+
 _FEAT_COLS = ["symbol", "ts", "open", "high", "low", "close", "volume",
               "regime", "atr", "brk_long", "brk_short", "conf_sh", "conf_sl"]
 
@@ -249,6 +252,7 @@ class PaperTrader:
         feats = {}
         lagging: list[str] = []
         self.fetch_failures = lagging  # read by run_paper to decide exit code / ping
+        self.stale_feed = None  # set to newest bar ts when the feed looks frozen
         for label in fetch_labels:
             mkt = self.live_markets.get(label) or market_by_label(label)
             try:
@@ -285,7 +289,13 @@ class PaperTrader:
         all_new_ts = sorted({t for ts_list in new_ts_by_symbol.values() for t in ts_list})
         if not all_new_ts:
             newest = max(f["ts"].max() for f in feats.values())
-            self.log.info("no new closed bar (latest=%s)", newest)
+            age_h = (dt.datetime.now(dt.timezone.utc) - newest).total_seconds() / 3600
+            if age_h > STALE_FEED_HOURS:
+                self.stale_feed = newest
+                self.log.error("FEED STALE: no new closed bar and latest %s is %.1fh old",
+                               newest, age_h)
+            else:
+                self.log.info("no new closed bar (latest=%s)", newest)
             return False
 
         # Feed-staleness guard (safety item #2): if the newest bar ANY symbol can offer
@@ -294,7 +304,8 @@ class PaperTrader:
         # older, which is legitimate backlog rather than a live-feed problem.
         newest_ts = all_new_ts[-1]
         age_h = (dt.datetime.now(dt.timezone.utc) - newest_ts).total_seconds() / 3600
-        if age_h > 9.0:  # 4h bar + 4h tolerance + 1h slack
+        if age_h > STALE_FEED_HOURS:
+            self.stale_feed = newest_ts
             self.log.error("FEED STALE: latest available bar %s is %.1fh old — excluding it "
                            "this tick, still catching up older backlog bars", newest_ts, age_h)
             all_new_ts = all_new_ts[:-1]

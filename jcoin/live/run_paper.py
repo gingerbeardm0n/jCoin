@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+from pathlib import Path
 
 from jcoin.data.config import DEFAULT_LIVE_LABELS
 from jcoin.engine.kill_switch import KillSwitchConfig
@@ -50,6 +51,8 @@ def main(argv=None) -> int:
                         "trades have R<=0 (KILL_RULE.md: 33, the 34th trips); 0 = off")
     p.add_argument("--reset-equity", type=float, default=None,
                    help="reset account equity to this value and drop open positions, then run")
+    p.add_argument("--init", action="store_true",
+                   help="allow a LIVE run to start with no state.json (fresh paper clock)")
     args = p.parse_args(argv)
 
     breaker = ErrorBreaker(args.state_dir)
@@ -78,6 +81,7 @@ def main(argv=None) -> int:
         markets, funding_cls = LIVE_MARKETS, KrakenFundingSource
         risk = RiskConfig(args.risk_frac, 1, 2)
     funding = funding_cls({m.label: m for m in markets}) if args.mode == "live" else None
+    had_state = (Path(args.state_dir) / "state.json").exists()
     trader = PaperTrader(
         labels=args.labels, tf=args.tf,
         strat=StrategyConfig(), risk=risk, live_markets=markets,
@@ -88,6 +92,13 @@ def main(argv=None) -> int:
 
     if args.reset_equity is not None:
         trader.reset_equity(args.reset_equity)
+    elif args.mode == "live" and not had_state and not args.init:
+        # A lost state.json would otherwise silently replay ~2300 bars from
+        # --start-equity and could latch the kill switch on fake trades.
+        print(f"NO STATE: {args.state_dir}/state.json missing -- restore it from backup, "
+              "or start fresh deliberately with --init (or --reset-equity <amount>)")
+        ping(suffix="/fail")
+        return 7
 
     try:
         if args.mode == "replay":
@@ -106,6 +117,12 @@ def main(argv=None) -> int:
             # blip after sleep shouldn't latch a halt; the next run catches up.
             print(f"\nFETCH FAILED for {failures} -- no heartbeat ping this run")
             return 4
+        stale = getattr(trader, "stale_feed", None)
+        if stale is not None:
+            # A frozen feed must not look healthy: tell the monitor explicitly.
+            print(f"\nFEED STALE (newest bar {stale}) -- sending /fail ping")
+            ping(suffix="/fail")
+            return 6
         ping()  # optional dead-man's-switch ping (no-op unless JCOIN_PING_URL is set)
     except Exception as e:
         breaker.record_failure(repr(e))

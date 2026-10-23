@@ -98,12 +98,30 @@ it comes back on its own. No manual restart, no laptop involved.
 
 ## 7. Updating code later
 
+**Automatic (paper only):** `sudo bash deploy/setup-auto-update.sh` (run once, and again
+after changing any unit file in `deploy/`) installs two timers:
+- `jcoin-update.timer`, hourly: tests `origin/main` in a scratch copy, then fast-forwards
+  and restarts `jcoin` only if tests pass. A failing commit is remembered and not
+  retried, and it sends a `/fail` ping. Log: `journalctl -t jcoin-update`.
+- `jcoin-backup.timer`, daily at 02:30 UTC: snapshots `paper_state/` to
+  `~jcoin/state-backups` and keeps 14 days.
+
+Git on the VM: always run as `sudo -u jcoin git ...`. Root has no GitHub key, and it
+trips git's "dubious ownership" check.
+
+If the bot ever starts with no `state.json`, it refuses (exit 7, `/fail` ping) rather than
+replaying history. Restore a backup, or start a fresh paper clock deliberately with
+`--init` / `--reset-equity <amount>`.
+
+**Manual:**
 ```bash
-gcloud compute ssh jcoin-bot --zone=us-central1-a
-cd /opt/jcoin && sudo -u jcoin git pull
-sudo -u jcoin .venv/bin/pip install -r requirements.txt   # only if deps changed
+cd /opt/jcoin && sudo -u jcoin git pull --ff-only
+sudo -u jcoin .venv/bin/pip install -r requirements.txt
 sudo systemctl restart jcoin
 ```
+
+**Before real keys go on this VM:** `sudo systemctl disable --now jcoin-update.timer`.
+The repo is public, and auto-update runs whatever is on `main`.
 
 ## 8. Real-money trading
 

@@ -1,0 +1,7 @@
+[Unit]
+Description=jCoin daily paper-state snapshot
+
+[Service]
+Type=oneshot
+User=jcoin
+ExecStart=/bin/bash /opt/jcoin/deploy/backup-state.sh
