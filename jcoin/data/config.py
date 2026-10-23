@@ -76,11 +76,10 @@ DEFAULT_MARKETS: list[Market] = [
 # CORRECTION (audit 2026-09-18): this comment used to call krakenfutures "US-legal" --
 # that is WRONG. Kraken Futures (futures.kraken.com) does NOT accept US residents for
 # real order placement; it has only ever been safe to use here as a market-data source
-# for paper trading. The actual live venue is still TBD -- Coinbase US nano perpetuals
-# are a candidate, but nothing has been selected/verified yet. Do not route real orders
-# to krakenfutures. Native 4h (240-min) candles here return ~720 bars — enough trailing
-# history for the regime/ATR features each call. (Coinbase has no native 4h granularity
-# + a 300-bar cap, part of why the venue choice is still open.)
+# for paper trading. The chosen live venue is Coinbase US nano perps (VENUE_DECISION_2026-10.md);
+# do not route real orders to krakenfutures. Native 4h (240-min) candles here return
+# ~720 bars. Coinbase's public API also serves native FOUR_HOUR candles (see
+# COINBASE_MARKETS / data/coinbase_public.py).
 LIVE_MARKETS: list[Market] = [
     # krakenfutures (futures.kraken.com) — data source only (paper trading); confirmed
     # active 2026-06-22. NOT available to US residents for real orders.
