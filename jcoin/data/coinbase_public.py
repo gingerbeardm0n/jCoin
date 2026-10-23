@@ -36,7 +36,7 @@ import urllib.request
 log = logging.getLogger(__name__)
 
 BASE_URL = "https://api.coinbase.com/api/v3/brokerage/market/products"
-_GRANULARITY = {"1h": ("ONE_HOUR", 3600), "4h": ("FOUR_HOUR", 4 * 3600)}
+_GRANULARITY = {"1m": ("ONE_MINUTE", 60), "1h": ("ONE_HOUR", 3600), "4h": ("FOUR_HOUR", 4 * 3600)}
 _MAX_BARS_PER_CALL = 300
 _PAUSE_S = 0.2                      # politeness pause between paginated calls
 _RETRY_WAITS_S = (1, 2, 4)          # backoff between attempts (4 attempts total)

@@ -91,8 +91,10 @@ def tick(mode: str) -> dict[str, int]:
              dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"), mode)
     codes: dict[str, int] = {}
     for name, module, sub in (("kraken", "jcoin.live.run_kraken", "kraken_state"),
-                              ("paper", "jcoin.live.run_paper", "paper_state")):
-        if mode not in (name, "both"):
+                              ("paper", "jcoin.live.run_paper", "paper_state"),
+                              ("sr", "jcoin.live.sr_runner", "paper_state_sr")):
+        # A_SR (VALIDATION_RULES.md §9) is paper-only and runs whenever A paper runs.
+        if mode not in ("paper" if name == "sr" else name, "both"):
             continue
         args = ["--state-dir", f"{_STATE_ROOT}/{sub}"] if _STATE_ROOT else None
         rc = run_module(module, args)

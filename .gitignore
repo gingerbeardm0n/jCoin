@@ -6,6 +6,7 @@
 
 # Paper/live runtime state + logs
 /paper_state/
+/paper_state_sr/
 **/state.json
 *.log
 

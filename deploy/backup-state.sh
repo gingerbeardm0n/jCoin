@@ -5,10 +5,11 @@
 # Restore: stop jcoin, copy a snapshot's state.json back into /opt/jcoin/paper_state/.
 set -euo pipefail
 
-SRC=/opt/jcoin/paper_state
 DEST="$HOME/state-backups"
 mkdir -p "$DEST"
 STAMP=$(date -u +%Y%m%dT%H%MZ)
-tar -czf "$DEST/paper_state-$STAMP.tgz" -C "$SRC" --exclude=cache .
+# paper_state = A, paper_state_sr = A_SR (VALIDATION_RULES.md §9)
+tar -czf "$DEST/paper_state-$STAMP.tgz" -C /opt/jcoin --exclude=cache \
+    paper_state $( [ -d /opt/jcoin/paper_state_sr ] && echo paper_state_sr )
 ls -1t "$DEST"/paper_state-*.tgz | tail -n +15 | xargs -r rm -f
 logger -t jcoin-backup "saved $DEST/paper_state-$STAMP.tgz"

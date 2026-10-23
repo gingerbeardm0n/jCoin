@@ -20,12 +20,12 @@ def test_default_mode_is_paper_and_never_touches_kraken(monkeypatch):
     monkeypatch.setattr(daemon, "run_module", lambda m, a=None: calls.append(m) or 0)
     monkeypatch.setattr(daemon, "RotatingFileHandler", lambda *a, **k: __import__("logging").NullHandler())
     assert daemon.main(["--once"]) == 0
-    assert calls == ["jcoin.live.run_paper"]
+    assert calls == ["jcoin.live.run_paper", "jcoin.live.sr_runner"]
 
 
 def test_tick_reports_runner_failure(monkeypatch):
     monkeypatch.setattr(daemon, "run_module", lambda m, a=None: 4)
-    assert daemon.tick("paper") == {"paper": 4}
+    assert daemon.tick("paper") == {"paper": 4, "sr": 4}
 
 
 def test_state_root_routes_state_dir(monkeypatch):
