@@ -53,6 +53,8 @@ forward, one row per evaluation.
 | 2026-10-23 | (protocol only, no runs) | — | — | A_SR spot-referenced stop rule registered in §8 **before** any code or results | No |
 | 2026-10-23 | `spot_stop_test.py` | A vs A_SR (fixed); A on Coinbase spot (dev) | 2 | §8 test → **DO NOT ADOPT** (Coinbase PF 1.17 vs 0.59 passes; spot dev MAR 0.99 < 1.23 fails). Report regenerated once to fix a label; numbers identical | No |
 | 2026-10-23 | (protocol only, no runs; one dev-only bootstrap for gate 3) | A on Coinbase spot dev trades | 2 | §9 registered after §8 (disclosed): A_SR to paper alongside A; real-money gate fixed before any A_SR paper data | No |
+| 2026-10-23 | `engine_numbers.py` | A via the trading engine (no cap / cap / +cycle / $1k lots), 0x funding; MC on engine trades | 2 | Report only: as-live A = 28.8% CAGR, MAR 1.09 (vs harness 35.6%, 1.37); engine MC p99 39.6% / 33 = KILL_RULE unchanged. `pipeline/A_ENGINE_NUMBERS_2026-10.md` | No |
+| ongoing from 2026-10-23 | `parity_ledger.py` (daily on VM) | paper trades vs harness replay on the same Coinbase data | 2 | Execution parity for §9 gate 2. Uses post-2026-06-01 live data by design; never a selection step | Live data only |
 | — | — | — | — | *(add new rows here going forward)* | — |
 
 ## 3. The gate definition

@@ -1,7 +1,12 @@
 [Unit]
-Description=jCoin daily paper-state snapshot
+Description=jCoin daily paper-state snapshot + paper parity ledger
 
 [Service]
 Type=oneshot
 User=jcoin
+EnvironmentFile=-/opt/jcoin/.env
+WorkingDirectory=/opt/jcoin
+TimeoutStartSec=900
 ExecStart=/bin/bash /opt/jcoin/deploy/backup-state.sh
+# Parity ledger: writes paper_state/parity_ledger.md; flags -> /fail ping + non-zero exit
+ExecStart=/opt/jcoin/.venv/bin/python -m jcoin.research.parity_ledger --root /opt/jcoin
