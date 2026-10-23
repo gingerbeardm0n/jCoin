@@ -47,6 +47,8 @@ forward, one row per evaluation.
 | 2026-10-19 | `noise_robustness.py`, Coinbase parity diagnostics | A fixed | 2 | Diagnostics only (noise, spikes); no selection | No |
 | 2026-10-19 | (protocol only, no runs) | — | — | A_CS close-based stop rule registered in §7 **before** any results | No |
 | 2026-10-19 | `close_stop_test.py` | A vs A_CS (fixed) | 2 | §7 test → **KEEP A** (dev MAR 0.85 < 1.11 threshold; Coinbase PF 0.98 vs 0.59 improved but not enough) | No |
+| 2026-10-21 | `carver_trend.py` (Carver EWMAC ×6, A on daily) | report-only, NOT pre-registered (logged late, 2026-10-23) | 2 | Research comparison; later found invalid (sizing bug, AUDIT_2026-10-23 W8) | No |
+| 2026-10-23 | (protocol only, no runs) | — | — | A_SR spot-referenced stop rule registered in §8 **before** any code or results | No |
 | — | — | — | — | *(add new rows here going forward)* | — |
 
 ## 3. The gate definition
@@ -152,3 +154,33 @@ A's intrabar stops early (`pipeline/COINBASE_PARITY_2026-10.md`). A live resting
 
 Report-only: A_CS on Binance over the same 10-month window. No sealed-window look unless adopted; if adopted,
 one logged confirmation look per §5 rules.
+
+## 8. Spot-referenced stops: A_SR (registered 2026-10-23, before any code or results)
+
+Motivation: `AUDIT_2026-10-23.md` W4. Coinbase nano stops trigger on the nano last trade only (no mark/index
+trigger in the API), and rare thin-book nano spikes clip A's big winners (Coinbase PF 0.59 vs Binance 1.12,
+§7 window). Coinbase **spot** (BTC-USD, ETH-USD) is a far deeper book. A live bot could watch spot and close the
+nano position with a market IOC order when spot crosses the stop, keeping only a wide resting stop on nano.
+
+**Contestant A_SR:** strategy A's exact rules and config (4h, k=2, ATR(14), init 1.0, trail 6.0, max_hold 120,
+1% risk, max 1/symbol, 2 concurrent), except that the price series used for **signals, regime, ATR, trailing
+"best" price and the stop trigger is Coinbase spot 4h** (intrabar highs/lows, as in A). Fills are on **nano**:
+- Entry = nano close of the signal bar.
+- Stop exit = spot stop level × (nano close ÷ spot close) of the exit bar, so the basis is carried over.
+- Disaster stop: a resting nano stop **2.0 ATR beyond** the current stop (fixed, same as §7). If nano's
+  high/low reaches it, exit there (or at the nano open if the bar gapped past it). If the disaster and the spot
+  stop hit in the same bar, take the **worse** fill.
+- Time exit = nano close.
+- R uses the spot stop distance. Costs 12bp round trip.
+- Known optimism: the backtest assumes the spot breach is caught instantly. Live needs ~1-minute polling;
+  that latency is not modelled.
+
+**Adopt A_SR for paper only if BOTH:**
+1. **Coinbase window** 2025-08-08 → 2026-05-31 (12bp, no funding): A_SR profit factor ≥ **1.00** **and** A_SR
+   PF > A's Coinbase PF (0.59), using the same harness for both.
+2. **Spot keeps the edge on dev data** 2021-01-01 → 2026-05-31 (12bp, no funding): A run entirely on Coinbase
+   spot 4h has Sharpe ≥ 0.90 × and MAR ≥ 0.90 × A on Binance (0× funding, same harness).
+
+Report-only (never used to decide): A on Binance over the Coinbase window; a per-trade table of the trades
+common to A and A_SR; how many nano disaster stops fired. ~70 trades means condition 1 is directional
+evidence, not proof. No sealed-window look unless adopted; if adopted, one logged look per §5.
