@@ -113,6 +113,11 @@ If the bot ever starts with no `state.json`, it refuses (exit 7, `/fail` ping) r
 replaying history. Restore a backup, or start a fresh paper clock deliberately with
 `--init` / `--reset-equity <amount>`.
 
+**Second paper bot, A_SR (VALIDATION_RULES.md §9):** in paper mode the daemon runs
+`jcoin.live.sr_runner` right after A each hour. Its state lives in `paper_state_sr/`
+(started 2026-10-23 19:02 UTC with `--init`, $1,000). It needs no separate service.
+Check it with `journalctl -u jcoin | grep A_SR`.
+
 **Manual:**
 ```bash
 cd /opt/jcoin && sudo -u jcoin git pull --ff-only
