@@ -49,6 +49,7 @@ forward, one row per evaluation.
 | 2026-10-19 | `close_stop_test.py` | A vs A_CS (fixed) | 2 | §7 test → **KEEP A** (dev MAR 0.85 < 1.11 threshold; Coinbase PF 0.98 vs 0.59 improved but not enough) | No |
 | 2026-10-21 | `carver_trend.py` (Carver EWMAC ×6, A on daily) | report-only, NOT pre-registered (logged late, 2026-10-23) | 2 | Research comparison; later found invalid (sizing bug, AUDIT_2026-10-23 W8) | No |
 | 2026-10-23 | (protocol only, no runs) | — | — | A_SR spot-referenced stop rule registered in §8 **before** any code or results | No |
+| 2026-10-23 | `spot_stop_test.py` | A vs A_SR (fixed); A on Coinbase spot (dev) | 2 | §8 test → **DO NOT ADOPT** (Coinbase PF 1.17 vs 0.59 passes; spot dev MAR 0.99 < 1.23 fails). Report regenerated once to fix a label; numbers identical | No |
 | — | — | — | — | *(add new rows here going forward)* | — |
 
 ## 3. The gate definition
