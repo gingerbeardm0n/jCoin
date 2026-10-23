@@ -37,7 +37,12 @@ rallies (2021, early 2026) and losing in 2022/2024/2025.
 
 ## Caveats (honest)
 - A's ATR trail 6.0 was originally picked using 2025–26 data (pre-audit contamination), so A's
-  2025/2026H1 slices are flattered. A still wins 2022–2024, which predate that choice.
+  2025/2026H1 slices are flattered. ~~A still wins 2022–2024, which predate that choice.~~
+  **Correction 2026-10-23 (`AUDIT_2026-10-23.md` W3):** that is wrong. Trail 6.0 came from a
+  full-range 2021–26 grid of 432 configs (`VALIDATION_RULES.md` §2 Looks Log), so 2022–24 were
+  part of the selection too. On the dev data A's edge is thin and tail-dependent: t ≈ 2.2, and
+  the top 10 trades are ~109% of total R. The sealed confirmation below also had only ~3 truly
+  blind trades.
 - B uses Binance perp prices as a spot proxy and Binance volume for ranking; delisting exits assume
   a sale at the last close (optimistic for collapses).
 - No significance testing; 396 trades for A, 142 rebalances for B.

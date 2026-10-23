@@ -1,5 +1,14 @@
 # Carver-style continuous trend follower: BTC + ETH
 
+> **RETRACTED 2026-10-23 (`AUDIT_2026-10-23.md` W8). The numbers below are invalid.**
+> - **Sizing bug:** no forecast scalar was applied (mean |forecast| ≈ 1–2, not ~10), and ATR was used
+>   as volatility. Average exposure was ~3% of equity, so the CAGR and drawdowns below are artifacts.
+> - **An audit replica with the bug fixed:** at the 0.60%/side spot cost below, this signal makes
+>   roughly −8% to +0.8% CAGR. Even at zero cost its Sharpe (≤ 0.53) is below buy-and-hold (~0.6)
+>   on these 2 coins.
+> - So "not worth pursuing at 2 coins" still holds, but **not** for the reason given ("needs breadth"
+>   was never tested). Also, this run was not pre-registered (Looks Log, logged late).
+
 Generated 2026-10-21 by `jcoin/research/carver_trend.py`. Dev window only (2021-01-01 to 2026-05-31). All configs are fixed and pre-declared — nothing was tuned. This is a research comparison, not a selection.
 
 **How it works:** instead of binary breakout signals with tight ATR stops, this strategy computes a continuous forecast from an EMA crossover, normalized by ATR. Position size scales with forecast strength — stronger trend = bigger position. No stops: positions shrink gradually as the trend weakens. Cost: Coinbase spot taker 0.60% per side, charged on the trade delta only. Rebalance threshold 10%.

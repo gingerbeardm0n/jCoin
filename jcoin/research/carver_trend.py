@@ -20,6 +20,10 @@ per community feedback from iSnake37: fewer signals, lower costs, cleaner trends
 Usage:
     python -m jcoin.research.carver_trend
 Writes pipeline/CARVER_TREND_2026-10.md and pipeline/A_DAILY_2026-10.md
+
+KNOWN BUG (AUDIT_2026-10-23 W8): carver_forecast() applies no forecast scalar and sizing uses
+ATR as vol, so positions are ~10x too small. Results are invalid; rerunning overwrites the
+retraction notes in both reports.
 """
 
 from __future__ import annotations
@@ -411,8 +415,8 @@ def write_daily_report(full_m: dict | None, slice_m: dict):
 
     w("## 3. Comparison with A on 4h")
     w("")
-    w("Strategy A on 4h (funding 1x) from A_HONEST_NUMBERS_2026-10.md: CAGR 30.1%, "
-      "maxDD 27.4%, MAR 1.10, Sharpe 0.90, PF 1.53, 396 trades, avg_R 0.435.")
+    w("Strategy A on 4h (funding 1x) from A_HONEST_NUMBERS_2026-10.md: CAGR 32.4%, "
+      "maxDD 26.3%, MAR 1.24, Sharpe 0.95, PF 1.60, 396 trades, avg_R 0.527.")
     w("")
     w("Key question: does daily produce enough trades to be meaningful, and does "
       "the MAR hold up? Fewer trades means wider confidence intervals.")

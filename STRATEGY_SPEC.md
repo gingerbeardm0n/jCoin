@@ -1,14 +1,24 @@
 # jCoin — Strategy & Risk Specification
 
 **Status:** Draft v0.1 — pre-build blueprint; risk, kill-switch, universe, and venue sections
-below were updated 2026-09-18 to match the running code (see inline notes).
-**Date:** 2026-06-19 (last updated 2026-09-18)
+below were updated 2026-09-18 and 2026-10-23 to match the running code (see inline notes).
+**Date:** 2026-06-19 (last updated 2026-10-23)
 **Owner:** Joel
 **Mandate:** A 24/7 automated crypto perpetual-futures trader. Constant monitoring,
 **trend-following swing trades** (see §3 v1 — this is NOT scalping; the original scalping
-mandate was superseded 2026-06-20, see §0). US-based, no VPN. Capital band $5k–25k is the
-long-run target; actual paper testing to date has used $1k, and the live venue is not yet
-decided — see "Venue status (2026-09-18)" in §1.
+mandate was superseded 2026-06-20, see §0). US-based, no VPN. Target real capital is now
+~$1–2k (the old $5k–25k band is long-run only).
+
+> **Current state (2026-10-23) — read this first; it overrides older text below.**
+> - **Venue chosen:** Coinbase US nano perps (`pipeline/VENUE_DECISION_2026-10.md`). No real money yet.
+> - **Paper, on the GCP VM** (systemd, hourly; laptop tasks retired):
+>   - **A:** BTC+ETH, 4h breakout, ATR 1.0/6.0, on Coinbase nano prices.
+>   - **A_SR:** same rules, stops referenced to Coinbase spot (`VALIDATION_RULES.md` §9).
+>   - Daily parity ledger plus state backup.
+> - **Honest numbers:** `pipeline/A_ENGINE_NUMBERS_2026-10.md`. As-live A is about 29% CAGR / MAR 1.09 before funding, on Binance prices, with an ~18% win rate.
+> - **Known blocker:** Coinbase nano spikes clip A's big winners (`pipeline/SPOT_STOP_TEST_2026-10.md`). This is why A_SR exists.
+> - **Kill rule:** `KILL_RULE.md` (39.8% DD / 33 losers). Real-money gate: `VALIDATION_RULES.md` §9.
+> - **Latest audit:** `AUDIT_2026-10-23.md`.
 
 > Sibling project to **jTrader** (mid-cap momentum equities, 9:30–11:30am only). jCoin removes the time-of-day constraint by moving to a market that never closes.
 
@@ -63,8 +73,10 @@ US-legal, no-VPN venues only (Hyperliquid, dYdX, GMX, Binance, Bybit, OKX are al
 
 ### Venue status (2026-09-18)
 
-**Not decided — do not treat any venue below as final.** The table above is the original
-plan; it is stale. The code's live broker currently targets ccxt `krakenfutures`
+> **UPDATED 2026-10-18: DECIDED: Coinbase US nano perps** (`pipeline/VENUE_DECISION_2026-10.md`),
+> over CME micros via IBKR. The notes below are kept as history.
+
+~~Not decided~~. The table above is the original plan; it is stale. The code's live broker currently targets ccxt `krakenfutures`
 (futures.kraken.com) — offshore Kraken Futures — but Kraken's own terms exclude US
 residents from that product, so this cannot legally go live as configured.
 
@@ -143,7 +155,9 @@ parameter grid.
 **Param set (~6, all candle-derived):** `swing_k`, `atr_period`, `atr_init`, `atr_trail`,
 `max_hold`, regime `lookback_swings`. Low overfit surface; sensitivity grid is stable.
 
-**Known caveats (carry into the build):** ~25% win rate (trend-following: many small losses,
+**Known caveats (carry into the build):** ~18% win rate (honest dev backtest, 2026-10; the
+earlier "~25%" figure was wrong). The edge comes almost entirely from rare big trends: the top
+10 of 396 dev trades are ~109% of total R (trend-following: many small losses,
 few big wins → long losing streaks are normal); slippage not yet modeled (live net < +59 bps);
 2026 YTD soft (watch for decay); 2-symbol concentration; backtest evaluates trades
 independently (the live engine must serialize / cap concurrent positions + size by risk).
@@ -210,7 +224,9 @@ US-legal-gettable) as conviction filters; broaden instruments if liquidity allow
   *Original target — 0.5–0.75% flat — superseded: the running code uses a higher 1% base
   and only cuts to 0.75% in bear phase, because bear-phase shorts still showed positive
   edge (PF ~1.59) so a full risk cut wasn't judged necessary; see
-  `jcoin/live/paper_runner.py:75-89`.*
+  `jcoin/live/paper_runner.py:75-89`.* **(2026-10-23: the "PF ~1.59" has no source in the repo,
+  and this filter was never in any validation run. In the engine on dev data it costs about 1%
+  CAGR; see `pipeline/A_ENGINE_NUMBERS_2026-10.md`. Treat it as unvalidated.)**
   **Bear phase, as actually defined (`jcoin/strategy/cycle.py`):** close below the
   365-day simple moving average (SMA), OR a "Pi Cycle Top" signal (111-day SMA crosses
   above 2× the 350-day SMA) that stays in force until price drops back below the 365-day
@@ -224,9 +240,9 @@ US-legal-gettable) as conviction filters; broaden instruments if liquidity allow
   (`kill_switch.py` `daily_loss_pct=0.03`).
 - ~~Weekly: 6–8% → halt + manual review.~~ **Superseded — no weekly-cadence check exists in
   code.** In its place, code has a **max-drawdown-from-peak hard halt** (flatten + disable,
-  manual re-enable): the live/paper runners' CLI default is **40%** (`run_paper.py`,
-  `run_kraken.py`, `--max-dd-pct`, default 0.40); the `KillSwitchConfig` module default if no
-  CLI flag is passed is **25%**. The original 6–8% weekly target was superseded because a
+  manual re-enable): the live/paper runners' CLI default is **39.8%** plus a **>33 consecutive
+  R≤0** streak halt, both latched (`KILL_RULE.md`, 2026-10-14). The `KillSwitchConfig` module
+  default if no CLI flag is passed is **25%**. The original 6–8% weekly target was superseded because a
   weekly check was never built — daily-loss plus a drawdown-from-peak check were judged
   sufficient.
 - **Consecutive-loss cooldown exists in code but is disabled** (`consecutive_losses=0`):
@@ -239,8 +255,8 @@ US-legal-gettable) as conviction filters; broaden instruments if liquidity allow
 - Avoid holding across funding stamps unless carry is favorable; flatten before thin windows.
 
 **Known cost-model gaps (2026-09-18):**
-- Funding is not modeled anywhere in the backtest or paper engine, even though this
-  strategy holds positions for multiple days and perps pay funding every 8 hours.
+- ~~Funding is not modeled anywhere.~~ **Fixed 2026-10-14:** the backtest charges Binance funding
+  (1×/2×, ~2.5% of gross profit), and paper accrues Coinbase hourly funding.
 - The backtest cost model is a flat 12 basis points (bp; 1 bp = 0.01%) round trip, applied
   the same way to every trade regardless of coin or size.
 - The live paper broker instead uses a separate constant 10 bp fee — it is not reconciled
@@ -265,7 +281,10 @@ US-legal-gettable) as conviction filters; broaden instruments if liquidity allow
 9. Manual "flatten-all + disable" reachable from phone
 
 **Go-live ramp:**
-`Paper / testnet ≥ 30 days → live at minimum size (~$500–1k risk capital) ≥ 30 days → scale into the $5k–25k band.`
+~~`Paper / testnet ≥ 30 days → live at minimum size ≥ 30 days → scale.`~~ **Superseded 2026-10-23.**
+The real-money gate is now `VALIDATION_RULES.md` §9: ≥ 6 months and ≥ 30 paper trades, execution
+parity, no kill-rule trip, and Joel's written go decision. Paper alone cannot prove the edge: that
+would take ~270–330 trades (~5 years).
 No trade-count threshold gates any step of this ramp — only elapsed continuous-processing
 days do.
 
@@ -299,7 +318,7 @@ loop ship.
 - [x] ~~Trader Mayne pipeline.~~ → Complete. 5 videos → 21 items → `concept_regime_filter.md` (NEW) + `MAYNE_INTEGRATION.md`.
 - [x] ~~Plan audit.~~ → `pipeline/AUDIT_2026-06-19.md` (11 findings).
 - [x] ~~Data-availability gate.~~ → `pipeline/DATA_AVAILABILITY.md`. Liquidations NO-GO; OI/funding/CVD/candles OK.
-- [x] ~~Lock v1 strategy.~~ → **Candle-only mean-reversion** (see §3 v1 block). ~8–10 params, no derivatives feeds.
+- [x] ~~Lock v1 strategy.~~ → ~~Candle-only mean-reversion~~ (tested and rejected 2026-06-20) → **trend-aligned 4h breakout** (§3 v1).
 - [x] ~~CanteringClark.~~ → **Dropped.** Light third; his edge was liquidations (now deprecated). Not worth the effort.
 - [ ] Confirm state eligibility (Coinbase + Kraken) — Joel is in Ohio, both should be available but verify.
 - [ ] **Source candle data** (Coinbase/Kraken historical OHLCV) for backtesting.

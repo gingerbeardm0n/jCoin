@@ -17,10 +17,10 @@ Each entry: the takeaway, who said it, and whether it changes anything we do.
 | BTC+ETH ≈ one bet. Trend needs a basket (e.g. top ~30 coins by market cap), equal-weighted | iSnake37, Hot_Heart_86, Huge_Position890 | **Big open question** — clashes with US venue (Coinbase lists few coins) and our alt results; see below |
 | Use daily bars for trend; below daily, mean reversion dominates and costs bite | iSnake37 (also someone else uses 8h minimum) | Possible test, must use pre-June data only |
 | Simplest version: MA crossover across the basket, equal weight, rebalance every few weeks, exit on opposite signal, no stops | iSnake37 | Interesting baseline to compare against |
-| Do walk-forward + Monte Carlo before trusting anything; ~40 trades per tunable parameter | PepMar000 | Partly done; Monte Carlo not yet |
+| Do walk-forward + Monte Carlo before trusting anything; ~40 trades per tunable parameter | PepMar000 | Monte Carlo done (KILL_RULE.md, 2026-10-14); walk-forward still not done; ~66 dev trades per parameter |
 | Read Carver's "Leveraged Trading" (small accounts) and "Systematic Trading" | iSnake37 | Reading list |
 
-| US venues: Kraken US perps (Bitnomial, 8h funding — but we found no retail API), Coinbase nano (hourly funding), or **CME micro futures via a futures broker (no funding; must roll contracts)** | moritz_ka | CME route not yet evaluated — add to venue research |
+| US venues: Kraken US perps (Bitnomial, 8h funding — but we found no retail API), Coinbase nano (hourly funding), or **CME micro futures via a futures broker (no funding; must roll contracts)** | moritz_ka | Evaluated 2026-10-18: Coinbase nano chosen over CME micros via IBKR (`pipeline/VENUE_DECISION_2026-10.md`) |
 
 | Spot long-only is "perfectly fine, might even be the better option" at small size; suggests Hyperliquid via VPN/API later for shorts | iSnake37 (2026-10-14) | Spot part: noted. **Hyperliquid/VPN: rejected** — circumvents US geoblock, against Joel's US-legal/no-VPN rule; risk of frozen funds and legal exposure |
 

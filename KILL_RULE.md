@@ -51,8 +51,15 @@ the data, the market regime, or the code), but a pass does not prove A is fine.
 
 - `KillSwitchConfig.max_dd_pct` and `max_losing_streak` (jcoin/engine/kill_switch.py). The
   engine/backtest defaults are unchanged (0.25 and 0 = off); the LIVE runners
-  (`run_paper.py`, `run_kraken.py`, `scripts/task_runner.pyw`, `run_paper_live.ps1`)
-  default to `--max-dd-pct 0.398 --max-losing-streak 33`, so laptop and VM match.
+  (`run_paper.py`, `run_kraken.py`) default to `--max-dd-pct 0.398 --max-losing-streak 33`.
+  The laptop scripts were retired 2026-10-23; the VM runs everything. The A_SR paper bot
+  (`jcoin/live/sr_runner.py`) uses the same thresholds.
+- 2026-10-23 cross-check (report only, rule unchanged): the same Monte Carlo on the live
+  engine's own dev trades (1× notional cap + cycle filter) gives 39.6% / 33
+  (`pipeline/A_ENGINE_NUMBERS_2026-10.md`). This rule is a disaster stop. At ~5 trades a
+  month it would take a median of ~2 years to trip even on a strategy that loses like A on
+  Coinbase nano (`AUDIT_2026-10-23.md` W5). It does not detect a fading edge; the parity
+  ledger is the earlier warning.
 - The streak counts closed trades by net R (after costs and funding), in exit order;
   `KillSwitchState.nonwin_streak` is persisted in state.json. The trade that makes it 34
   trips the halt immediately and the runner flattens in the same step.
@@ -66,5 +73,5 @@ the data, the market regime, or the code), but a pass does not prove A is fine.
 - Mark-to-market caveat: paper `account.equity` is realized P&L only (open positions are
   not marked), so the paper drawdown check lags open-trade losses until they close.
 
-Paper P&L also now accrues Kraken perp funding (jcoin/live/funding.py); it is part of
+Paper P&L also now accrues perp funding (Coinbase hourly since 2026-10-19; Kraken before) (jcoin/live/funding.py); it is part of
 each trade's R, so it feeds this rule.
