@@ -25,6 +25,8 @@ choice may be made using any data from this window. This is not "use it carefull
 
 ## 2. Looks Log
 
+*(Rules §5–§9 are further down.)*
+
 The first rows below summarize the historical looks that broke the previous seal (the
 ≥1,000 figure and how it was derived). All rows after the horizontal rule are logged going
 forward, one row per evaluation.
@@ -50,6 +52,7 @@ forward, one row per evaluation.
 | 2026-10-21 | `carver_trend.py` (Carver EWMAC ×6, A on daily) | report-only, NOT pre-registered (logged late, 2026-10-23) | 2 | Research comparison; later found invalid (sizing bug, AUDIT_2026-10-23 W8) | No |
 | 2026-10-23 | (protocol only, no runs) | — | — | A_SR spot-referenced stop rule registered in §8 **before** any code or results | No |
 | 2026-10-23 | `spot_stop_test.py` | A vs A_SR (fixed); A on Coinbase spot (dev) | 2 | §8 test → **DO NOT ADOPT** (Coinbase PF 1.17 vs 0.59 passes; spot dev MAR 0.99 < 1.23 fails). Report regenerated once to fix a label; numbers identical | No |
+| 2026-10-23 | (protocol only, no runs; one dev-only bootstrap for gate 3) | A on Coinbase spot dev trades | 2 | §9 registered after §8 (disclosed): A_SR to paper alongside A; real-money gate fixed before any A_SR paper data | No |
 | — | — | — | — | *(add new rows here going forward)* | — |
 
 ## 3. The gate definition
@@ -185,3 +188,38 @@ nano position with a market IOC order when spot crosses the stop, keeping only a
 Report-only (never used to decide): A on Binance over the Coinbase window; a per-trade table of the trades
 common to A and A_SR; how many nano disaster stops fired. ~70 trades means condition 1 is directional
 evidence, not proof. No sealed-window look unless adopted; if adopted, one logged look per §5.
+
+## 9. A_SR into PAPER alongside A (registered 2026-10-23, AFTER the §8 result — disclosed)
+
+**Disclosure:** written after §8 returned "DO NOT ADOPT" (Coinbase PF 1.17 passed; spot-dev MAR 0.99 missed
+the 1.23 bar, Sharpe 0.89 vs 0.90). This is a new decision, not an edit of §8, and it is weaker evidence for
+having been made after seeing results. Joel's decision, 2026-10-23: the §8 90% bar (copied from §7) was set
+too strict for a **paper-only** step that risks no money. §8's verdict stands as recorded.
+
+**Decision:** A_SR runs in paper on the VM **alongside** A. A is unchanged and keeps its own state, its clock
+and its kill rule. Neither is switched off or swapped because of early paper results.
+
+**A_SR paper spec (fixed):** the §8 contestant, live.
+- Signals, regime, ATR and the trailing stop come from Coinbase spot 4h (BTC-USD, ETH-USD). The trail updates
+  at each 4h close from the bar's high/low.
+- Stop trigger: the spot 1-minute high/low, processed hourly from 1-minute candles (what a 1-minute poller
+  would see, without its latency).
+- Fills on nano:
+  - Entry = nano 4h close of the signal bar.
+  - Stop exit = stop × (nano ÷ spot) close of that minute.
+  - Disaster = resting nano stop 2.0 ATR beyond the stop, checked on nano 1-minute bars.
+  - Same minute: take the worse fill.
+  - Time exit after 120 bars = nano 4h close.
+- Costs: 12bp round trip, plus Coinbase hourly funding at the current published rate.
+- Sizing: whole contracts, same `RiskConfig` as A paper (1% risk, notional ≤ 1× equity, ≤ 2× target risk).
+- Account: $1,000 start, separate state dir `paper_state_sr/`. No cycle filter (§8 had none).
+- Hard halt at the same thresholds as `KILL_RULE.md` (39.8% DD or >33 consecutive R≤0), latched.
+
+**Gate to REAL money for A_SR (fixed now, before any A_SR paper data). ALL required:**
+1. ≥ 6 months of A_SR paper **and** ≥ 30 closed paper trades.
+2. **Execution parity:** re-running the §8 harness on the same Coinbase data reproduces ≥ 90% of the paper
+   trades (same entry bar and side), each within 0.25R. This proves the live code is the tested code.
+3. No hard-halt trip, and paper average R ≥ **−0.69**. That is the 5th percentile of a 30-trade average R
+   bootstrapped from A's 402 Coinbase-spot dev trades (seed 20261023; dev mean +0.48). Honest limit: 30 trades
+   can only catch a *broken* strategy, not prove an edge.
+4. A written, dated go decision by Joel. Live code reviewed. Auto-update **off**. Manual deploy.
