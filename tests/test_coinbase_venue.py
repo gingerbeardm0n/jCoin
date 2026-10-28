@@ -161,6 +161,20 @@ def test_lot_rounding_nearest_lot():
     assert size == pytest.approx(0.13)
 
 
+def test_hard_cap_rounds_down_instead_of_skipping():
+    # target 0.0172 BTC (1.72 lots) -> nearest = 2 lots = 1.16x target; hard cap 1.0 -> 1 lot
+    size, risk = _size(17_200, 10_000.0, lot_sizes={"BTC": 0.01}, max_risk_mult=1.0)
+    assert size == pytest.approx(0.01) and risk == pytest.approx(100.0) and risk <= 172.0
+
+
+def test_hard_cap_skips_when_one_contract_exceeds_target():
+    # $910 equity, 1% = $9.10; 1 BTC lot with a $1,500 stop risks $15 -> skip
+    assert _size(910, 1_500.0, lot_sizes={"BTC": 0.01}, max_risk_mult=1.0) == (0.0, 0.0)
+    # ETH-like: 1 lot risking $7 fits under $9.10
+    size, risk = _size(910, 70.0, entry=2_300.0, lot_sizes={"BTC": 0.1}, max_risk_mult=1.0)
+    assert size == pytest.approx(0.1) and risk == pytest.approx(7.0)
+
+
 def test_lot_rounding_rounds_up_to_one_lot_within_max_risk_mult():
     # target size 0.004 BTC (0.4 lot); one lot (0.01) risks 2.5x the target -> OK at mult 3
     size, risk = _size(400, 1000.0, entry=5_000.0, lot_sizes={"BTC": 0.01}, max_risk_mult=3.0)

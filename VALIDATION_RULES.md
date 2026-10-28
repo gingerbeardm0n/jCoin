@@ -225,3 +225,11 @@ and its kill rule. Neither is switched off or swapped because of early paper res
    bootstrapped from A's 402 Coinbase-spot dev trades (seed 20261023; dev mean +0.48). Honest limit: 30 trades
    can only catch a *broken* strategy, not prove an edge.
 4. A written, dated go decision by Joel. Live code reviewed. Auto-update **off**. Manual deploy.
+
+**§9 amendment (2026-10-28, Joel's decision):** whole-contract sizing in **both** paper bots (A and A_SR) is now a
+**hard cap**: a trade may never risk more than the target (`max_risk_mult` 2.0 → 1.0). If rounding to the nearest
+contract would overshoot, size rounds **down**; if even 1 contract exceeds the target, the signal is skipped. At ~$1k
+equity this skips most BTC signals (1 BTC nano contract risks ~$12–24 vs a ~$9 target); ETH (0.1 ETH contracts)
+is mostly unaffected. Reason: real risk had been 0.8–2.5% per trade instead of 1%. The paper clocks keep running.
+Trades from 2026-10-28 on are sized under the new rule, so analyses should split at that date. The real-money gate
+is otherwise unchanged.

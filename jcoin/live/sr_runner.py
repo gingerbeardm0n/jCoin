@@ -71,7 +71,7 @@ def _closed(rows, bar_ms, now_ms):
 
 class SRTrader:
     def __init__(self, state_dir="paper_state_sr", data=None, now_ms=None,
-                 risk=RiskConfig(0.01, 1, 2, lot_sizes=dict(CONTRACT_SIZES))):
+                 risk=RiskConfig(0.01, 1, 2, lot_sizes=dict(CONTRACT_SIZES), max_risk_mult=1.0)):
         self.dir = Path(state_dir)
         self.path = self.dir / "state.json"
         self.data = data or CoinbaseData()

@@ -76,7 +76,9 @@ def main(argv=None) -> int:
     if args.venue == "coinbase":
         markets, funding_cls = COINBASE_MARKETS, CoinbaseFundingSource
         lots = dict(CONTRACT_SIZES) if args.mode == "live" else None
-        risk = RiskConfig(args.risk_frac, 1, 2, lot_sizes=lots)
+        # Hard cap: a whole-contract trade may never risk more than the target (Joel,
+        # 2026-10-28). With ~$1k equity this skips most BTC signals; ETH sizes fine.
+        risk = RiskConfig(args.risk_frac, 1, 2, lot_sizes=lots, max_risk_mult=1.0)
     else:
         markets, funding_cls = LIVE_MARKETS, KrakenFundingSource
         risk = RiskConfig(args.risk_frac, 1, 2)

@@ -30,7 +30,7 @@ class RiskConfig:
     # size_position() rounds to whole contracts AFTER the notional cap; max_risk_mult
     # bounds how far the rounded position's stop-out risk may exceed the target risk.
     lot_sizes: dict[str, float] | None = None
-    max_risk_mult: float = 2.0
+    max_risk_mult: float = 2.0   # paper runners use 1.0 (hard 1% cap, Joel 2026-10-28)
 
 
 def can_open(account: Account, symbol: str, cfg: RiskConfig) -> bool:
@@ -88,7 +88,11 @@ def _round_to_lots(equity: float, intent: EnterIntent, entry_price: float, cfg: 
                  "(target size %.6f)", intent.symbol, lot, size)
         return 0.0, 0.0
     rounded_risk = lots * lot * stop_dist
-    if rounded_risk > max_risk:
+    if rounded_risk > max_risk and lots > 1:
+        # Nearest-lot rounding overshot the cap: fall back to the largest lot count that fits.
+        lots = min(lots, int(max_risk / (lot * stop_dist) + 1e-9))
+        rounded_risk = lots * lot * stop_dist
+    if lots == 0 or rounded_risk > max_risk:
         log.info("lot rounding skip for %s: %d contract(s) risk %.2f > %.2fx target %.2f "
                  "(target size %.6f, lot %.4g)", intent.symbol, lots, rounded_risk,
                  cfg.max_risk_mult, risk_dollars, size, lot)
