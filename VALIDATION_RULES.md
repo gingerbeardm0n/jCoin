@@ -55,6 +55,7 @@ forward, one row per evaluation.
 | 2026-10-23 | (protocol only, no runs; one dev-only bootstrap for gate 3) | A on Coinbase spot dev trades | 2 | §9 registered after §8 (disclosed): A_SR to paper alongside A; real-money gate fixed before any A_SR paper data | No |
 | 2026-10-23 | `engine_numbers.py` | A via the trading engine (no cap / cap / +cycle / $1k lots), 0x funding; MC on engine trades | 2 | Report only: as-live A = 28.8% CAGR, MAR 1.09 (vs harness 35.6%, 1.37); engine MC p99 39.6% / 33 = KILL_RULE unchanged. `pipeline/A_ENGINE_NUMBERS_2026-10.md` | No |
 | ongoing from 2026-10-23 | `parity_ledger.py` (daily on VM) | paper trades vs harness replay on the same Coinbase data | 2 | Execution parity for §9 gate 2. Uses post-2026-06-01 live data by design; never a selection step | Live data only |
+| 2026-11-09 | (protocol only, no runs) | — | — | §10 breadth rule registered **before** fetching new coin data or running anything | No |
 | — | — | — | — | *(add new rows here going forward)* | — |
 
 ## 3. The gate definition
@@ -233,3 +234,34 @@ equity this skips most BTC signals (1 BTC nano contract risks ~$12–24 vs a ~$9
 is mostly unaffected. Reason: real risk had been 0.8–2.5% per trade instead of 1%. The paper clocks keep running.
 Trades from 2026-10-28 on are sized under the new rule, so analyses should split at that date. The real-money gate
 is otherwise unchanged.
+
+## 10. Breadth: A on every other Coinbase US perp coin (registered 2026-11-09, before any new data or runs)
+
+Goal (Joel): make money trading crypto. A's edge rests on ~10 big trades across 2 correlated coins; more
+instruments would mean more trades, faster evidence and less dependence on BTC/ETH trending.
+
+**Universe (fixed):** every coin with a Coinbase US perp-style nano contract on 2026-11-09, minus BTC and ETH
+(already traded) and PAXG (gold-backed): ADA, AAVE, AVAX, BCH, BNB, DOGE, ENA, HBAR, HYPE, LTC, LINK, NEAR,
+ONDO, PEPE, DOT, SHIB, SOL, SUI, XLM, XRP, ZEC (21).
+
+**Disclosure — mostly NOT blind:** 15 of the 21 were already evaluated with this same config on full-range
+data (June `breadth_study.py` and the `validate_coins*` gate): ADA, AAVE, AVAX, BCH, BNB, DOGE, HBAR, LTC,
+LINK, NEAR, DOT, SOL, SUI, XLM, XRP. Only ADA and NEAR passed the June bar. Only **ENA, HYPE, ONDO, PEPE,
+SHIB, ZEC** are unseen. The list is also survivorship-biased (coins that are listed today).
+
+**Test (fixed, no tuning):** strategy A's exact config (4h, k=2, ATR(14), init 1.0, trail 6.0, max_hold 120),
+research harness (`portfolio_backtest.build_trades`, intrabar stops), Binance USD-M 4h prices
+(1000PEPE / 1000SHIB contracts for PEPE / SHIB), dev window 2021-01-01 → 2026-05-31 only. Cost 12bp round
+trip, funding 0× for every coin (no per-coin funding history; disclosed). A coin needs ≥ 1.5 years of dev data
+after a 60-day warm-up, or it is reported as "insufficient data" and cannot pass.
+
+**Per-coin pass (all four, solo portfolio at 1% risk):** ≥ 30 trades; profit factor ≥ 1.20; average R > 0;
+positive total R in at least half of the calendar slices in which it had ≥ 5 trades.
+
+**Breadth ADOPTED (for a paper decision, nothing else) only if BOTH:**
+1. At least **3** coins pass.
+2. The combined portfolio BTC+ETH+passers (1% risk, max 1 per symbol, **max 4 concurrent**, fixed here) has
+   Sharpe ≥ and MAR ≥ BTC+ETH alone (same harness, max 2 concurrent), on the dev window.
+
+Expect about 1–2 false passes from 21 tries by luck alone. If adopted, how to paper it (e.g. more coins in A_SR)
+is a separate dated decision. Report-only: per-coin table and the combined-portfolio slices.
