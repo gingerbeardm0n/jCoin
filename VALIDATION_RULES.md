@@ -56,6 +56,7 @@ forward, one row per evaluation.
 | 2026-10-23 | `engine_numbers.py` | A via the trading engine (no cap / cap / +cycle / $1k lots), 0x funding; MC on engine trades | 2 | Report only: as-live A = 28.8% CAGR, MAR 1.09 (vs harness 35.6%, 1.37); engine MC p99 39.6% / 33 = KILL_RULE unchanged. `pipeline/A_ENGINE_NUMBERS_2026-10.md` | No |
 | ongoing from 2026-10-23 | `parity_ledger.py` (daily on VM) | paper trades vs harness replay on the same Coinbase data | 2 | Execution parity for §9 gate 2. Uses post-2026-06-01 live data by design; never a selection step | Live data only |
 | 2026-11-09 | (protocol only, no runs) | — | — | §10 breadth rule registered **before** fetching new coin data or running anything | No |
+| 2026-11-09 | `breadth_coinbase.py` | A fixed on 21 Coinbase-perp coins (Binance 4h, 0x funding); combined BTC+ETH+passers max 4 concurrent | 23 | §10 → **ADOPTED for a paper decision**: 8 pass (ADA, ENA, HBAR, LINK, NEAR, SHIB, SUI, XRP; ENA+SHIB unseen); combined MAR 1.53 vs 1.37 but max DD 53% vs 26%. Combined result is in-sample by construction | No |
 | — | — | — | — | *(add new rows here going forward)* | — |
 
 ## 3. The gate definition
