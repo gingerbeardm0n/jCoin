@@ -293,3 +293,7 @@ that reason. Joel's decision, 2026-11-09: add a third paper bot. A and A_SR are 
    §10 dev trades. To be computed and appended here before the first A_BR paper trade closes.
 4. Joel's written, dated go decision, with a capital decision. At ~$1k most of these contracts cannot be traded
    at 0.5% risk.
+
+**§11 gate 3 value (computed 2026-11-09, before any A_BR paper trade):** paper average R must be ≥ **−0.41**.
+That is the 5th percentile of a 60-trade average R bootstrapped (100,000 draws, seed 20261109) from the 1,429 dev
+trades of the §10 portfolio at 0.5% risk, max 4 concurrent (dev mean +0.38).

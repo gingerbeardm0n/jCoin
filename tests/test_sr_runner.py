@@ -113,6 +113,25 @@ def test_stale_spot_feed_raises(tmp_path):
         t.tick()
 
 
+def test_breadth_universe_config():
+    u = sr.UNIVERSES["breadth"]
+    assert len(u.labels) == 10 and set(u.labels) == set(u.nano) == set(u.lots) == set(u.spot)
+    assert u.risk_frac == 0.005 and u.max_concurrent == 4 and (u.max_dd, u.max_streak) == (0.346, 41)
+    t = sr.SRTrader("x", universe=u)
+    assert t.risk.max_concurrent == 4 and t.risk.max_risk_mult == 1.0 and t.dir.name == "x"
+    assert sr.SRTrader(universe=u).dir.name == "paper_state_br"
+
+
+def test_breadth_shib_sizing_uses_nano_units():
+    # SHIB nano is quoted per 1k SHIB (~0.00444); contract 10000 units -> ~$44 per contract
+    from jcoin.engine.risk import size_position
+    from jcoin.engine.types import EnterIntent, Side
+    t = sr.SRTrader("x", universe=sr.UNIVERSES["breadth"])
+    entry, stop = 0.00444, 0.00444 * 0.97      # 3% stop
+    size, risk = size_position(5000.0, EnterIntent("SHIB", Side.LONG, stop, 0.0001), entry, t.risk)
+    assert size % 10000 == 0 and size > 0 and risk <= 25.0 + 1e-9
+
+
 def test_missing_state_refuses(tmp_path, monkeypatch):
     pings = []
     monkeypatch.setattr(sr, "ping", lambda suffix="": pings.append(suffix))

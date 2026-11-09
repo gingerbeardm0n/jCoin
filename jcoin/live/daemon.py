@@ -92,11 +92,15 @@ def tick(mode: str) -> dict[str, int]:
     codes: dict[str, int] = {}
     for name, module, sub in (("kraken", "jcoin.live.run_kraken", "kraken_state"),
                               ("paper", "jcoin.live.run_paper", "paper_state"),
-                              ("sr", "jcoin.live.sr_runner", "paper_state_sr")):
-        # A_SR (VALIDATION_RULES.md §9) is paper-only and runs whenever A paper runs.
-        if mode not in ("paper" if name == "sr" else name, "both"):
+                              ("sr", "jcoin.live.sr_runner", "paper_state_sr"),
+                              ("br", "jcoin.live.sr_runner", "paper_state_br")):
+        # A_SR (§9) and A_BR (§11) are paper-only and run whenever A paper runs.
+        if mode not in ("paper" if name in ("sr", "br") else name, "both"):
             continue
-        args = ["--state-dir", f"{_STATE_ROOT}/{sub}"] if _STATE_ROOT else None
+        args = ["--state-dir", f"{_STATE_ROOT}/{sub}"] if _STATE_ROOT else []
+        if name == "br":
+            args = ["--universe", "breadth"] + args
+        args = args or None
         rc = run_module(module, args)
         codes[name] = rc
         if rc == 0:

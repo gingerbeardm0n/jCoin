@@ -114,6 +114,21 @@ COINBASE_MARKETS: list[Market] = [
 # contracts, so paper sizing rounds to multiples of these (RiskConfig.lot_sizes).
 CONTRACT_SIZES: dict[str, float] = {"BTC": 0.01, "ETH": 0.1}
 
+# §11 breadth paper bot (A_BR): BTC+ETH + the 8 coins that passed VALIDATION_RULES.md §10.
+# Contract size is in the nano product's own price units (Coinbase quotes SHIB nano per 1,000
+# SHIB, so contract value = size x nano price). Checked against api.coinbase.com 2026-11-09.
+BREADTH_LABELS: list[str] = ["BTC", "ETH", "ADA", "ENA", "HBAR", "LINK", "NEAR", "SHIB", "SUI", "XRP"]
+BREADTH_NANO: dict[str, str] = {
+    "BTC": "BIP-20DEC30-CDE", "ETH": "ETP-20DEC30-CDE", "ADA": "ADP-20DEC30-CDE",
+    "ENA": "ENA-20DEC30-CDE", "HBAR": "HEP-20DEC30-CDE", "LINK": "LNP-20DEC30-CDE",
+    "NEAR": "NER-20DEC30-CDE", "SHIB": "SHP-20DEC30-CDE", "SUI": "SUP-20DEC30-CDE",
+    "XRP": "XPP-20DEC30-CDE",
+}
+BREADTH_CONTRACT_SIZES: dict[str, float] = {
+    "BTC": 0.01, "ETH": 0.1, "ADA": 1000, "ENA": 5000, "HBAR": 5000, "LINK": 50, "NEAR": 500,
+    "SHIB": 10000, "SUI": 500, "XRP": 500,
+}
+
 # Default symbol universe for live/paper runners (audit 2026-09-18: the full 9-coin
 # universe above was the DEFAULT for scheduled runs, which multiplied fetch cost and
 # catch-up cost when the runner missed bars. BTC+ETH is now the default; the other

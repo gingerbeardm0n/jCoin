@@ -23,7 +23,7 @@ import json
 import sys
 from pathlib import Path
 
-from jcoin.data.config import COINBASE_MARKETS
+from jcoin.data.config import BREADTH_LABELS, BREADTH_NANO, COINBASE_MARKETS
 from jcoin.live.ping import ping
 from jcoin.research.close_stop_test import trades as harness_trades
 from jcoin.research.coinbase_parity import fetch_coinbase_4h
@@ -47,9 +47,9 @@ def _closed(state_path: Path) -> list[dict]:
     return json.loads(state_path.read_text(encoding="utf-8")).get("closed", [])
 
 
-def _frames(start: dt.datetime, end: dt.datetime):
-    spot = {c: fetch_coinbase_4h(p, start, end) for c, p in SPOT_PRODUCTS.items()}
-    nano = {c: fetch_coinbase_4h(p, start, end) for c, p in NANO.items()}
+def _frames(start: dt.datetime, end: dt.datetime, spot_ids=SPOT_PRODUCTS, nano_ids=NANO):
+    spot = {c: fetch_coinbase_4h(p, start, end) for c, p in spot_ids.items()}
+    nano = {c: fetch_coinbase_4h(p, start, end) for c, p in nano_ids.items()}
     cut = lambda d: {k: v.filter(v["ts"] + H4 <= end) for k, v in d.items()}   # closed bars only
     return cut(spot), cut(nano)
 
@@ -58,14 +58,14 @@ def _index(trades):
     return {(t["symbol"], t["side"], t["entry_time"]): t for t in trades}
 
 
-def build(a_trades: list[dict], sr_trades: list[dict], spot, nano):
+def build(a_trades: list[dict], sr_trades: list[dict], spot, nano, sr_name: str = "A_SR"):
     """Return (rows, n_flags). Paper trade dicts: symbol, side, entry_time (bar OPEN for A,
-    bar CLOSE for A_SR), R."""
-    rep_a = _index(harness_trades("intrabar", 0.0, nano))
+    bar CLOSE for the spot-referenced bots), R."""
+    rep_a = _index(harness_trades("intrabar", 0.0, nano)) if a_trades else {}
     rep_sr = _index(ref_trades(spot, nano))
     rows, flags = [], 0
     for bot, paper, replay, shift in (("A", a_trades, rep_a, dt.timedelta(0)),
-                                     ("A_SR", sr_trades, rep_sr, H4)):
+                                     (sr_name, sr_trades, rep_sr, H4)):
         for t in paper:
             key = (t["symbol"], t["side"], _ts(t["entry_time"]) - shift)
             r = replay.get(key)
@@ -107,7 +107,20 @@ def main(argv=None) -> int:
         out += [f"| {b} | {s} | {sd} | {e:%Y-%m-%d %H:%M} | {f(p)} | {f(r)} | {f(d)} | {st} | {n} |"
                 for b, s, sd, e, p, r, d, st, n in rows]
     else:
-        out.append("No closed paper trades to check yet.")
+        out.append("No closed A / A_SR paper trades to check yet.")
+    br = [t for t in _closed(root / "paper_state_br" / "state.json") if t.get("exit_kind") != "halt"]
+    if br:
+        earliest = min(_ts(t["entry_time"]) for t in br)
+        spot_br, nano_br = _frames(min(earliest - dt.timedelta(days=150), now), now,
+                                   {l: f"{l}-USD" for l in BREADTH_LABELS}, BREADTH_NANO)
+        rows, n = build([], br, spot_br, nano_br, sr_name="A_BR")
+        flags += n
+        f = lambda v: "—" if v is None else f"{v:+.3f}"
+        out += ["", "## A_BR (breadth)", "",
+                "| Bot | Symbol | Side | Entry bar | Paper R | Replay R | dR | Status | Note |",
+                "|---|---|---|---|---|---|---|---|---|"]
+        out += [f"| {b} | {s} | {sd} | {e:%Y-%m-%d %H:%M} | {f(p)} | {f(r)} | {f(d)} | {st} | {n_} |"
+                for b, s, sd, e, p, r, d, st, n_ in rows]
     out += ["", f"**{flags} flagged trade(s).**"]
     (root / "paper_state").mkdir(exist_ok=True)
     (root / "paper_state" / "parity_ledger.md").write_text("\n".join(out) + "\n", encoding="utf-8")

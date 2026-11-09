@@ -25,12 +25,14 @@ import json
 import logging
 import sys
 import time
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import polars as pl
 
 from jcoin.data import coinbase_public as cb
-from jcoin.data.config import COINBASE_MARKETS, CONTRACT_SIZES
+from jcoin.data.config import (BREADTH_CONTRACT_SIZES, BREADTH_LABELS, BREADTH_NANO, COINBASE_MARKETS,
+                               CONTRACT_SIZES)
 from jcoin.engine.risk import RiskConfig, size_position
 from jcoin.engine.types import EnterIntent, Side
 from jcoin.live.ping import ping
@@ -49,6 +51,31 @@ COST_FRAC = 0.0012
 MAX_DD, MAX_STREAK = 0.398, 33
 STALE_MS = 9 * 3600 * 1000
 SPOT_BARS = 600
+
+
+@dataclass(frozen=True)
+class Universe:
+    name: str
+    labels: tuple
+    spot: dict
+    nano: dict
+    lots: dict
+    risk_frac: float
+    max_concurrent: int
+    max_dd: float
+    max_streak: int
+    state_dir: str
+    start_equity: float
+
+
+# §9: A_SR = BTC+ETH, 1% risk, KILL_RULE.md thresholds.
+A_SR = Universe("A_SR", tuple(LABELS), SPOT, NANO, dict(CONTRACT_SIZES), 0.01, 2, MAX_DD, MAX_STREAK,
+                "paper_state_sr", 1000.0)
+# §11: A_BR = BTC+ETH + the §10 passers, 0.5% risk, max 4 concurrent, own kill thresholds.
+A_BR = Universe("A_BR", tuple(BREADTH_LABELS), {l: f"{l}-USD" for l in BREADTH_LABELS},
+                dict(BREADTH_NANO), dict(BREADTH_CONTRACT_SIZES), 0.005, 4, 0.346, 41,
+                "paper_state_br", 5000.0)
+UNIVERSES = {"a_sr": A_SR, "breadth": A_BR}
 
 
 class CoinbaseData:
@@ -70,13 +97,14 @@ def _closed(rows, bar_ms, now_ms):
 
 
 class SRTrader:
-    def __init__(self, state_dir="paper_state_sr", data=None, now_ms=None,
-                 risk=RiskConfig(0.01, 1, 2, lot_sizes=dict(CONTRACT_SIZES), max_risk_mult=1.0)):
-        self.dir = Path(state_dir)
+    def __init__(self, state_dir=None, data=None, now_ms=None, universe=None, risk=None):
+        self.u = universe or A_SR
+        self.dir = Path(state_dir or self.u.state_dir)
         self.path = self.dir / "state.json"
         self.data = data or CoinbaseData()
         self.now_ms = now_ms or (lambda: int(time.time() * 1000))
-        self.risk = risk
+        self.risk = risk or RiskConfig(self.u.risk_frac, 1, self.u.max_concurrent,
+                                       lot_sizes=dict(self.u.lots), max_risk_mult=1.0)
         self.s: dict = {}
         self._min_cache: dict = {}
 
@@ -96,24 +124,24 @@ class SRTrader:
     def init(self, equity: float) -> None:
         """Fresh paper clock: mark the latest closed spot bar as processed, no backfill."""
         now = self.now_ms()
-        last = max(_closed(self.data.bars_4h(SPOT[l], 10), BAR_MS, now)[-1][0] for l in LABELS)
+        last = max(_closed(self.data.bars_4h(self.u.spot[l], 10), BAR_MS, now)[-1][0] for l in self.u.labels)
         self.s = {"equity": equity, "start_equity": equity, "peak": equity,
                   "clock_start_ms": now, "last_bar_ms": last, "positions": {}, "closed": [],
                   "nonwin_streak": 0, "hard_halted": False, "halt_reason": ""}
         self.save()
-        log.info("A_SR paper clock started: equity %.2f, last bar %s", equity, _iso(last))
+        log.info(self.u.name + " paper clock started: equity %.2f, last bar %s", equity, _iso(last))
 
     # -- one tick ----------------------------------------------------------
     def tick(self) -> None:
         now = self.now_ms()
         self._min_cache = {}
-        spot = {l: _closed(self.data.bars_4h(SPOT[l], SPOT_BARS), BAR_MS, now) for l in LABELS}
+        spot = {l: _closed(self.data.bars_4h(self.u.spot[l], SPOT_BARS), BAR_MS, now) for l in self.u.labels}
         newest = min(rows[-1][0] for rows in spot.values())
         if now - newest > STALE_MS:
             raise StaleFeed(f"newest closed spot 4h bar {_iso(newest)} is "
                             f"{(now - newest) / 3.6e6:.1f}h old")
-        nano = {l: {r[0]: r for r in _closed(self.data.bars_4h(NANO[l], 200), BAR_MS, now)}
-                for l in LABELS}
+        nano = {l: {r[0]: r for r in _closed(self.data.bars_4h(self.u.nano[l], 200), BAR_MS, now)}
+                for l in self.u.labels}
         new_bars = sorted({r[0] for rows in spot.values() for r in rows if r[0] > self.s["last_bar_ms"]})
         for b in new_bars:
             close_ms = b + BAR_MS
@@ -122,7 +150,7 @@ class SRTrader:
             for l in list(self.s["positions"]):
                 self._bar_close(l, b, spot[l], nano[l])
             if b == new_bars[-1] and not self.s["hard_halted"]:
-                for l in LABELS:
+                for l in self.u.labels:
                     self._maybe_enter(l, b, spot[l], nano[l])
             self.s["last_bar_ms"] = b
         for l in list(self.s["positions"]):
@@ -134,8 +162,8 @@ class SRTrader:
         key = label
         cached = self._min_cache.get(key)
         if not cached or cached[0] > start_ms or cached[1] < end_ms:
-            sp = {r[0]: r for r in self.data.minutes(SPOT[label], start_ms, end_ms)}
-            na = {r[0]: r for r in self.data.minutes(NANO[label], start_ms, end_ms)}
+            sp = {r[0]: r for r in self.data.minutes(self.u.spot[label], start_ms, end_ms)}
+            na = {r[0]: r for r in self.data.minutes(self.u.nano[label], start_ms, end_ms)}
             cached = self._min_cache[key] = (start_ms, end_ms, sp, na)
         _, _, sp, na = cached
         for m in sorted(set(sp) | set(na)):
@@ -178,7 +206,7 @@ class SRTrader:
             return
         bar = next((r for r in spot_rows if r[0] == b), None)
         if bar is None:
-            log.warning("A_SR %s: no spot bar at %s; trail not updated this bar", label, _iso(b))
+            log.warning(self.u.name + " %s: no spot bar at %s; trail not updated this bar", label, _iso(b))
             return
         n = nano_by_ts.get(b)
         if n is not None:
@@ -212,7 +240,7 @@ class SRTrader:
         a = float(_atr(df2, ATR_PERIOD)[last])
         n = nano_by_ts.get(b)
         if a <= 0 or n is None:
-            log.warning("A_SR %s signal at %s skipped: atr=%.4f nano bar %s", label, _iso(b), a,
+            log.warning(self.u.name + " %s signal at %s skipped: atr=%.4f nano bar %s", label, _iso(b), a,
                         "present" if n else "MISSING")
             return
         long = sig["side"] == "long"
@@ -222,7 +250,7 @@ class SRTrader:
         intent = EnterIntent(label, Side.LONG if long else Side.SHORT, stop * basis, a, "A_SR")
         size, risk_dollars = size_position(self.s["equity"], intent, entry_fill, self.risk)
         if size <= 0:
-            log.warning("A_SR %s %s signal at %s skipped by sizing (equity %.2f, 1 contract too big)",
+            log.warning(self.u.name + " %s %s signal at %s skipped by sizing (equity %.2f, 1 contract too big)",
                         label, sig["side"], _iso(b), self.s["equity"])
             return
         self.s["positions"][label] = {
@@ -231,7 +259,7 @@ class SRTrader:
             "atr": a, "size": size, "risk_dollars": risk_dollars, "basis": basis,
             "bars_held": 0, "checked_ms": b + BAR_MS, "last_price": entry_fill,
         }
-        log.info("A_SR ENTER %s %s size=%g @ nano %.2f (spot %.2f, stop %.2f spot, risk $%.2f)",
+        log.info(self.u.name + " ENTER %s %s size=%g @ nano %.2f (spot %.2f, stop %.2f spot, risk $%.2f)",
                  label, sig["side"], size, entry_fill, entry_ref, stop, risk_dollars)
 
     def _close(self, label, exit_fill, exit_ms, kind):
@@ -240,9 +268,9 @@ class SRTrader:
         notional = p["size"] * p["entry_fill"]
         hours = max(0.0, (exit_ms - (p["entry_ms"] + BAR_MS)) / 3.6e6)
         try:
-            rate = self.data.funding_rate(NANO[label])
+            rate = self.data.funding_rate(self.u.nano[label])
         except Exception as e:
-            log.warning("A_SR funding rate unavailable for %s (%s); charging 0", label, e)
+            log.warning(self.u.name + " funding rate unavailable for %s (%s); charging 0", label, e)
             rate = 0.0
         funding = d * rate * hours * notional  # + = paid
         pnl = d * p["size"] * (exit_fill - p["entry_fill"]) - COST_FRAC * notional - funding
@@ -254,13 +282,13 @@ class SRTrader:
         s["closed"].append({"symbol": label, "side": p["side"], "entry_time": _iso(p["entry_ms"] + BAR_MS),
                             "exit_time": _iso(exit_ms), "entry_fill": p["entry_fill"], "exit_fill": exit_fill,
                             "size": p["size"], "pnl": pnl, "R": R, "funding": funding, "exit_kind": kind})
-        log.info("A_SR EXIT %s %s %s @ %.2f R=%+.3f pnl=%+.2f equity=%.2f",
+        log.info(self.u.name + " EXIT %s %s %s @ %.2f R=%+.3f pnl=%+.2f equity=%.2f",
                  label, p["side"], kind, exit_fill, R, pnl, s["equity"])
         dd = 1 - s["equity"] / s["peak"]
-        if not s["hard_halted"] and (dd > MAX_DD or s["nonwin_streak"] > MAX_STREAK):
+        if not s["hard_halted"] and (dd > self.u.max_dd or s["nonwin_streak"] > self.u.max_streak):
             s["hard_halted"] = True
-            s["halt_reason"] = f"drawdown {dd:.1%}" if dd > MAX_DD else f"{s['nonwin_streak']} non-winners"
-            log.error("A_SR HARD HALT: %s -- flattening; human review required (KILL_RULE.md)",
+            s["halt_reason"] = f"drawdown {dd:.1%}" if dd > self.u.max_dd else f"{s['nonwin_streak']} non-winners"
+            log.error(self.u.name + " HARD HALT: %s -- flattening; human review required (KILL_RULE.md)",
                       s["halt_reason"])
             for other in list(s["positions"]):
                 o = s["positions"][other]
@@ -276,41 +304,42 @@ def _iso(ms: int) -> str:
 
 
 def main(argv=None) -> int:
-    ap = argparse.ArgumentParser(description="A_SR paper trader (VALIDATION_RULES.md §9)")
-    ap.add_argument("--state-dir", default="paper_state_sr")
-    ap.add_argument("--init", action="store_true", help="start a fresh A_SR paper clock")
-    ap.add_argument("--start-equity", type=float, default=1000.0)
+    ap = argparse.ArgumentParser(description="Spot-referenced paper traders: A_SR (§9) and A_BR (§11)")
+    ap.add_argument("--universe", choices=sorted(UNIVERSES), default="a_sr")
+    ap.add_argument("--state-dir", default=None, help="default: the universe's own state dir")
+    ap.add_argument("--init", action="store_true", help="start a fresh paper clock")
+    ap.add_argument("--start-equity", type=float, default=None, help="default: the universe's start equity")
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, stream=sys.stdout,
                         format="%(asctime)s %(levelname)s %(name)s %(message)s")
-    t = SRTrader(args.state_dir)
+    u = UNIVERSES[args.universe]
+    t = SRTrader(args.state_dir, universe=u)
     if not t.exists():
         if not args.init:
             print(f"NO STATE: {t.path} missing -- restore a backup or run once with --init")
             ping(suffix="/fail")
             return 7
-        t.init(args.start_equity)
+        t.init(args.start_equity or u.start_equity)
         return 0
     t.load()
     if t.s["hard_halted"]:
-        print(f"A_SR HALTED ({t.s['halt_reason']}) -- see KILL_RULE.md restart procedure")
+        print(f"{u.name} HALTED ({t.s['halt_reason']}) -- see VALIDATION_RULES.md restart procedure")
         return 5
     try:
         t.tick()
     except StaleFeed as e:
-        log.error("A_SR FEED STALE: %s", e)
+        log.error("%s FEED STALE: %s", u.name, e)
         ping(suffix="/fail")
         return 6
     except Exception:
-        log.exception("A_SR tick failed")
+        log.exception("%s tick failed", u.name)
         ping(suffix="/fail")
         return 1
     s = t.s
-    since = s["clock_start_ms"]
     rs = [c["R"] for c in s["closed"]]
     stats = (f"avgR={sum(rs) / len(rs):+.3f} over {len(rs)} trades" if rs else "0 trades")
-    print(f"SUMMARY A_SR | equity=${s['equity']:,.2f} | open={len(s['positions'])} | {stats} "
-          f"since {_iso(since)[:10]} | nonwin_streak={s['nonwin_streak']} | last_bar={_iso(s['last_bar_ms'])}")
+    print(f"SUMMARY {u.name} | equity=${s['equity']:,.2f} | open={len(s['positions'])} | {stats} "
+          f"since {_iso(s['clock_start_ms'])[:10]} | nonwin_streak={s['nonwin_streak']} | last_bar={_iso(s['last_bar_ms'])}")
     return 0
 
 

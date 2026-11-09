@@ -29,3 +29,4 @@ Thumbs.db
 
 # Watchdog alert files (runtime output)
 WATCHDOG_ALERT*.txt
+/paper_state_br/

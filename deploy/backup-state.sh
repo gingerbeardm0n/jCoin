@@ -8,8 +8,9 @@ set -euo pipefail
 DEST="$HOME/state-backups"
 mkdir -p "$DEST"
 STAMP=$(date -u +%Y%m%dT%H%MZ)
-# paper_state = A, paper_state_sr = A_SR (VALIDATION_RULES.md §9)
-tar -czf "$DEST/paper_state-$STAMP.tgz" -C /opt/jcoin --exclude=cache \
-    paper_state $( [ -d /opt/jcoin/paper_state_sr ] && echo paper_state_sr )
+# paper_state = A, paper_state_sr = A_SR (§9), paper_state_br = A_BR (§11)
+EXTRA=""
+for d in paper_state_sr paper_state_br; do [ -d "/opt/jcoin/$d" ] && EXTRA="$EXTRA $d"; done
+tar -czf "$DEST/paper_state-$STAMP.tgz" -C /opt/jcoin --exclude=cache paper_state $EXTRA
 ls -1t "$DEST"/paper_state-*.tgz | tail -n +15 | xargs -r rm -f
 logger -t jcoin-backup "saved $DEST/paper_state-$STAMP.tgz"
