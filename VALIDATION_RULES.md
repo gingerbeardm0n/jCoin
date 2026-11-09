@@ -57,6 +57,7 @@ forward, one row per evaluation.
 | ongoing from 2026-10-23 | `parity_ledger.py` (daily on VM) | paper trades vs harness replay on the same Coinbase data | 2 | Execution parity for §9 gate 2. Uses post-2026-06-01 live data by design; never a selection step | Live data only |
 | 2026-11-09 | (protocol only, no runs) | — | — | §10 breadth rule registered **before** fetching new coin data or running anything | No |
 | 2026-11-09 | `breadth_coinbase.py` | A fixed on 21 Coinbase-perp coins (Binance 4h, 0x funding); combined BTC+ETH+passers max 4 concurrent | 23 | §10 → **ADOPTED for a paper decision**: 8 pass (ADA, ENA, HBAR, LINK, NEAR, SHIB, SUI, XRP; ENA+SHIB unseen); combined MAR 1.53 vs 1.37 but max DD 53% vs 26%. Combined result is in-sample by construction | No |
+| 2026-11-09 | (dev-only: breadth portfolio at 0.5% risk + MC) | §10 coins, max 4 concurrent | 10 | Sizing/kill thresholds for §11 A_BR: 0.5% risk → CAGR 46.9%, DD 31.5% (in-sample); MC p99 34.6% / 41 | No |
 | — | — | — | — | *(add new rows here going forward)* | — |
 
 ## 3. The gate definition
@@ -266,3 +267,29 @@ positive total R in at least half of the calendar slices in which it had ≥ 5 t
 
 Expect about 1–2 false passes from 21 tries by luck alone. If adopted, how to paper it (e.g. more coins in A_SR)
 is a separate dated decision. Report-only: per-coin table and the combined-portfolio slices.
+
+## 11. Third paper bot A_BR: breadth (registered 2026-11-09, after the §10 result — disclosed)
+
+**Disclosure:** written after §10 returned "ADOPTED for a paper decision". The coin list and the 0.5% risk were both
+chosen after seeing §10's numbers: 1% risk gave a 53% dev drawdown; 0.5% gives 31.5%. This is weaker evidence for
+that reason. Joel's decision, 2026-11-09: add a third paper bot. A and A_SR are unchanged.
+
+**A_BR paper spec (fixed):**
+- Universe: BTC, ETH + the 8 §10 passers: ADA, ENA, HBAR, LINK, NEAR, SHIB, SUI, XRP.
+- Mechanics: A_SR's (§9). Signals and stops come from Coinbase spot 4h and 1-minute bars; fills are on Coinbase
+  nano (entry = nano 4h close, stop exit = stop × nano/spot basis, resting nano disaster stop 2 ATR out).
+- Risk: **0.5%** per trade, max 1 per symbol, **max 4 concurrent**. Whole contracts with the hard cap (never more
+  than the target risk). Notional ≤ 1× equity per position. Cost 12bp plus hourly funding.
+- Account: **$5,000** start (simulated), state in `paper_state_br/`. No cycle filter.
+- **Kill rule (A_BR only, fixed now):** hard halt at **34.6%** drawdown or **> 41** consecutive R≤0 trades. These are
+  the 99th percentiles of 10,000 one-year paths (264 trades/yr, 0.5% risk) bootstrapped from the 1,429 dev
+  trades of this portfolio (Binance, seed 20261014). Caveat: the historical in-sample DD (31.5%) is close to the
+  threshold, and i.i.d. resampling understates clustering, so a false trip is possible.
+
+**Real-money gate for A_BR (fixed now, before any paper data). ALL required:**
+1. ≥ 6 months of paper and ≥ 60 closed trades.
+2. Execution parity: the parity ledger reproduces ≥ 90% of paper trades within 0.25R.
+3. No hard-halt trip, and paper average R ≥ the 5th percentile of a 60-trade average R bootstrapped from the
+   §10 dev trades. To be computed and appended here before the first A_BR paper trade closes.
+4. Joel's written, dated go decision, with a capital decision. At ~$1k most of these contracts cannot be traded
+   at 0.5% risk.
